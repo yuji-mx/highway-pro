@@ -1,0 +1,173 @@
+{
+  "counts": {
+    "facilities": 8,
+    "ramps": 38,
+    "sections": 14
+  },
+  "facilities": [
+    {
+      "normalized_name": "合成Y|JCT",
+      "facility_type": "JCT",
+      "shape_class": "Y型",
+      "ramp_count": 2,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "合成|SA",
+      "facility_type": "SA",
+      "shape_class": "SA/PA",
+      "ramp_count": 4,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "合成|SIC",
+      "facility_type": "SIC",
+      "shape_class": "スマートIC",
+      "ramp_count": 4,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "合成クローバー|IC",
+      "facility_type": "IC",
+      "shape_class": "クローバーリーフ型",
+      "ramp_count": 8,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "合成タービン|JCT",
+      "facility_type": "JCT",
+      "shape_class": "タービン型",
+      "ramp_count": 8,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "合成ダイヤモンド|IC",
+      "facility_type": "IC",
+      "shape_class": "ダイヤモンド型",
+      "ramp_count": 4,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "合成トランペット|IC",
+      "facility_type": "IC",
+      "shape_class": "トランペット型",
+      "ramp_count": 4,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "合成ハーフ|IC",
+      "facility_type": "IC",
+      "shape_class": "ハーフIC",
+      "ramp_count": 2,
+      "is_jct_combined": false,
+      "is_half_ic": true
+    }
+  ],
+  "sections": [
+    {
+      "route_ref": "SYN1",
+      "a": "合成Y|JCT",
+      "b": "合成トランペット|IC",
+      "direction": "down",
+      "dist_standard_m": 2699.7
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成|SA",
+      "b": "合成|SIC",
+      "direction": "down",
+      "dist_standard_m": 2999.7
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成|SA",
+      "b": "合成クローバー|IC",
+      "direction": "up",
+      "dist_standard_m": 3999.6
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成|SIC",
+      "b": "合成|SA",
+      "direction": "up",
+      "dist_standard_m": 2999.7
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成|SIC",
+      "b": "合成タービン|JCT",
+      "direction": "down",
+      "dist_standard_m": 4999.6
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成クローバー|IC",
+      "b": "合成|SA",
+      "direction": "down",
+      "dist_standard_m": 3999.6
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成クローバー|IC",
+      "b": "合成ダイヤモンド|IC",
+      "direction": "up",
+      "dist_standard_m": 5999.4
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成タービン|JCT",
+      "b": "合成|SIC",
+      "direction": "up",
+      "dist_standard_m": 4999.6
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成ダイヤモンド|IC",
+      "b": "合成クローバー|IC",
+      "direction": "down",
+      "dist_standard_m": 5999.4
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成ダイヤモンド|IC",
+      "b": "合成ハーフ|IC",
+      "direction": "up",
+      "dist_standard_m": 3399.6
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成トランペット|IC",
+      "b": "合成Y|JCT",
+      "direction": "up",
+      "dist_standard_m": 2674.7
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成トランペット|IC",
+      "b": "合成ハーフ|IC",
+      "direction": "down",
+      "dist_standard_m": 2599.7
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成ハーフ|IC",
+      "b": "合成ダイヤモンド|IC",
+      "direction": "down",
+      "dist_standard_m": 3399.6
+    },
+    {
+      "route_ref": "SYN1",
+      "a": "合成ハーフ|IC",
+      "b": "合成トランペット|IC",
+      "direction": "up",
+      "dist_standard_m": 2624.7
+    }
+  ]
+}

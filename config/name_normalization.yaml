@@ -1,0 +1,18 @@
+strip_chars: ["‐", "-", "–", "—", "―", "ｰ", "ー", "・", "･", " ", "　", "."]
+# 括弧書きの除去（全角・半角）
+strip_brackets: true
+# 接尾辞 → 種別コード（長いものから順に照合）
+suffixes:
+  - {pattern: スマートインターチェンジ, code: SIC}
+  - {pattern: スマートIC, code: SIC}
+  - {pattern: スマートＩＣ, code: SIC}
+  - {pattern: インターチェンジ, code: IC}
+  - {pattern: ジャンクション, code: JCT}
+  - {pattern: サービスエリア, code: SA}
+  - {pattern: パーキングエリア, code: PA}
+  - {pattern: JCT, code: JCT}
+  - {pattern: IC, code: IC}
+  - {pattern: SA, code: SA}
+  - {pattern: PA, code: PA}
+  - {pattern: TB, code: TB}
+  - {pattern: 料金所, code: TB}

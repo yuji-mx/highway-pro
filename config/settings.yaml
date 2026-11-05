@@ -1,0 +1,34 @@
+# パス・ポート・プロキシ・ユーザー名
+paths:
+  data_dir: data
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_db: data/processed/roadmri.duckdb
+  tiles_dir: data/tiles
+  cache_dir: data/cache
+  exports_dir: data/exports
+  logs_dir: data/logs
+  boundaries_dir: data/raw/boundaries
+server:
+  host: 127.0.0.1
+  port: 8765
+http:
+  user_agent_suffix: "(+internal research use)"
+  ca_bundle: null          # 社内 CA 証明書のパス（REQUESTS_CA_BUNDLE でも可）
+  timeout_s: 180
+  max_retries: 4
+  backoff_base_s: 2.0
+  rate_limits:             # host: {min_interval_s, max_concurrency, per_second}
+    overpass-api.de: {min_interval_s: 10.0, max_concurrency: 1}
+    cyberjapandata.gsi.go.jp: {per_second: 20, max_concurrency: 4}
+    default: {max_concurrency: 4}
+user:
+  name: null               # null の場合は OS のユーザー名
+osm:
+  default_source: pbf
+  buffer_km: 10
+  overpass_url: https://overpass-api.de/api/interpreter
+  overpass_timeout_s: 180
+  geofabrik_base: https://download.geofabrik.de
+  general_road_highways: [primary, secondary, tertiary, primary_link, secondary_link, tertiary_link, trunk, trunk_link]
+  display_road_highways: [unclassified, residential]

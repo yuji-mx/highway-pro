@@ -1,0 +1,63 @@
+{
+  "counts": {
+    "facilities": 3,
+    "ramps": 35,
+    "sections": 4
+  },
+  "facilities": [
+    {
+      "normalized_name": "大谷|PA",
+      "facility_type": "PA",
+      "shape_class": "SA/PA",
+      "ramp_count": 4,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "宇都宮|IC",
+      "facility_type": "IC",
+      "shape_class": "複合型",
+      "ramp_count": 8,
+      "is_jct_combined": true,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "鹿沼|IC",
+      "facility_type": "IC",
+      "shape_class": "トランペット型",
+      "ramp_count": 4,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    }
+  ],
+  "sections": [
+    {
+      "route_ref": "E4",
+      "a": "大谷|PA",
+      "b": "宇都宮|IC",
+      "direction": "down",
+      "dist_standard_m": 3615.9
+    },
+    {
+      "route_ref": "E4",
+      "a": "大谷|PA",
+      "b": "鹿沼|IC",
+      "direction": "up",
+      "dist_standard_m": 7902.6
+    },
+    {
+      "route_ref": "E4",
+      "a": "宇都宮|IC",
+      "b": "大谷|PA",
+      "direction": "up",
+      "dist_standard_m": 3298.5
+    },
+    {
+      "route_ref": "E4",
+      "a": "鹿沼|IC",
+      "b": "大谷|PA",
+      "direction": "down",
+      "dist_standard_m": 8031.2
+    }
+  ]
+}

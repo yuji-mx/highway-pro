@@ -1,0 +1,11 @@
+id: synthetic
+label: 合成ネットワーク（テスト・デモ用）
+country: JP
+range:
+  type: bbox
+  bbox: [139.60, 36.30, 140.10, 36.80]
+  buffer_km: 0
+  label: 合成
+pbf:
+  local: tests/fixtures/synthetic/synthetic.osm.pbf
+dem: synthetic

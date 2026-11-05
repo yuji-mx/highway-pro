@@ -1,0 +1,29 @@
+# 路線の起点（上り判定用: 起点に近づく向き = 上り）と ref 別名
+routes:
+  E4:
+    name: 東北自動車道
+    origin: {lon: 139.7745, lat: 35.7966}     # 川口JCT 付近
+    aliases: [東北自動車道, 東北道, "E4"]
+  E50:
+    name: 北関東自動車道
+    origin: {lon: 139.0500, lat: 36.3300}     # 高崎JCT 付近
+    aliases: [北関東自動車道, 北関東道]
+  E81:
+    name: 日光宇都宮道路
+    origin: {lon: 139.8450, lat: 36.6383}     # 宇都宮IC 側
+    aliases: [日光宇都宮道路, "E81;119"]
+  E6:
+    name: 常磐自動車道
+    origin: {lon: 139.8340, lat: 35.7680}
+    aliases: [常磐自動車道, 常磐道]
+  SYN1:
+    name: 合成本線1
+    origin: {lon: 139.85, lat: 36.30}
+    aliases: [合成本線1]
+  SYN2:
+    name: 合成本線2
+    origin: {lon: 139.60, lat: 36.55}
+    aliases: [合成本線2]
+# trunk を本線として扱う ref（motorroad=yes は常に本線）
+trunk_mainline_refs: []
+ring_routes: []

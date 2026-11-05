@@ -1,0 +1,16 @@
+weights: {R: 0.30, G: 0.30, L: 0.15, K: 0.10, M: 0.15}
+params:
+  r_ref_m: 150
+  r_span_m: 110
+  g_ref_pct: 7
+  l_ref_m: 1000
+  k_ref: 0.0005          # 1/m^2 の曲率変化率の基準
+  accel_ref_m: 320
+  accel_span_m: 150
+composite:
+  small_r_m: 150
+  small_r_long_len_m: 400
+  short_accel_m: 200
+  end_uphill_pct: 3
+  high_alt_m: 800
+  high_alt_grade_pct: 4

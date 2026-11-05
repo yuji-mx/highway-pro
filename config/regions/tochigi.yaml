@@ -1,0 +1,13 @@
+id: tochigi
+label: 栃木県＋周辺
+country: JP
+range:
+  type: admin
+  admin_codes: ["09"]
+  bbox: [139.30, 36.19, 140.30, 37.16]   # 境界ポリゴン未取得時のフォールバック
+  buffer_km: 10
+  label: 栃木県
+pbf:
+  url: https://download.geofabrik.de/asia/japan/kanto-latest.osm.pbf
+  extra: [https://download.geofabrik.de/asia/japan/tohoku-latest.osm.pbf]
+dem: jp

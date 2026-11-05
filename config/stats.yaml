@@ -1,0 +1,29 @@
+bootstrap: 2000
+seed: 42
+alpha: 0.05
+fdr_q: 0.10
+min_n_reference: 10
+insight_min_abs_delta: 0.33
+insight_max: 5
+exact_n_max: 20
+hist_max_bins: 30
+fisher_mc_iterations: 10000
+default_metrics:
+  - ramp.length_m
+  - ramp.min_radius_m
+  - ramp.grade_up_max_w100
+  - ramp.grade_down_max_w100
+  - ramp.abs_elev_diff_m
+  - ramp.z_max
+  - ramp.difficulty
+  - ramp.curvature_rate_max
+  - ramp.accel_lane_len_m
+  - facility.ramp_count
+  - facility.loop_ramp_count
+  - facility.shape_confidence
+  - facility.min_radius_m
+  - section.dist_standard_m
+  - section.grade_up_max_w100
+  - section.gain_per_km
+  - section.min_radius_m
+  - section.tunnel_ratio
