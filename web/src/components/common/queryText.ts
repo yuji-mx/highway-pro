@@ -14,7 +14,7 @@ export const FIELD_LABELS: Record<string, [string, string]> = {
   review_status: ["確認状態", ""], dist_standard_m: ["距離（標準）", " m"], gain_per_km: ["累積上昇/km", " m/km"],
   elev_gain_m: ["累積上昇", " m"], tunnel_len_m: ["トンネル延長", " m"], bridge_len_m: ["橋梁延長", " m"],
   grade_up_max_w1000: ["最大上り(1000m)", "%"], is_loop: ["ループ", ""], small_r_long: ["小Rかつ長いランプ", ""],
-  direction: ["方向", ""],
+  direction: ["方向", ""], country: ["国", ""],
 };
 for (const w of [10, 50, 100, 500]) {
   FIELD_LABELS[`grade_up_max_w${w}`] = [`${w}m上り`, "%"];
@@ -32,6 +32,7 @@ const ORDINAL = new Set(["dem_quality", "osm_quality", "quality_level"]);
 function val(field: string, v: any): string {
   if (Array.isArray(v)) return v.map((x) => val(field, x)).join("・");
   if (field === "flow") return FLOW_JA[v] ?? String(v);
+  if (field === "country") return ({ JP: "日本", US: "米国", CA: "カナダ" } as Record<string, string>)[v] ?? String(v);
   if (ORDINAL.has(field)) return QJ[v] ?? String(v);
   if (typeof v === "boolean") return v ? "はい" : "いいえ";
   const unit = FIELD_LABELS[field]?.[1] ?? "";

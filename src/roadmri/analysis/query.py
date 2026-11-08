@@ -137,6 +137,7 @@ FACILITY_FIELDS: dict[str, Field] = {
     "lat": _num("f.lat", "緯度"),
 }
 SECTION_FIELDS: dict[str, Field] = {
+    "country": Field("substr(s.from_facility_id, 1, 2)", "str", "国"),
     "section_id": Field("s.section_id", "str", "区間ID"),
     "route_ref": Field("s.route_ref", "str", "路線"),
     "direction": Field("s.direction", "str", "方向"),

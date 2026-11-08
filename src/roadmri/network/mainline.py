@@ -34,8 +34,94 @@ def route_origins(rg: RoadGraph, routes_cfg: dict[str, Any]) -> dict[str, tuple[
     return out
 
 
-def assign_directions(rg: RoadGraph, routes_cfg: dict[str, Any]) -> None:
-    """本線エッジに direction（up/down、環状は inner/outer）を付与する。起点に近づく向き＝上り。"""
+CARDINAL = ("north", "south", "east", "west")
+
+
+def route_axis(rg: RoadGraph, route: str) -> str:
+    """米国式の路線の軸（"NS" / "EW"）。路線番号が奇数なら南北、偶数なら東西。番号がなければ路線の広がりで決める。"""
+    from roadmri.units import route_number
+
+    num = route_number(route)
+    if num is not None:
+        return "NS" if num % 2 == 1 else "EW"
+    xs: list[float] = []
+    ys: list[float] = []
+    for e in rg.edges("mainline"):
+        if e.data["route_ref"] == route:
+            xs += [float(e.data["xy"][0][0]), float(e.data["xy"][-1][0])]
+            ys += [float(e.data["xy"][0][1]), float(e.data["xy"][-1][1])]
+    return "NS" if (max(ys) - min(ys)) >= (max(xs) - min(xs)) else "EW"
+
+
+def assign_cardinal_directions(rg: RoadGraph) -> None:
+    """米国・カナダ：本線の向きを方位（north / south / east / west）で表す（標識の NB/SB/EB/WB に相当）。
+
+    軸方向の移動量がエッジ長の 20 % 未満のエッジ（軸と直交する区間）は前後の同一路線エッジから継承する。
+    """
+    axes: dict[str, str] = {}
+    pending: list[EdgeRef] = []
+    for e in rg.edges("mainline"):
+        r = e.data["route_ref"]
+        if r is None:
+            e.data["direction"] = "unknown"
+            continue
+        ax = axes.setdefault(r, route_axis(rg, r))
+        (x0, y0), (x1, y1) = e.data["xy"][0], e.data["xy"][-1]
+        d = (y1 - y0) if ax == "NS" else (x1 - x0)
+        if abs(d) < 0.2 * max(e.data["length_m"], 1e-6):
+            e.data["direction"] = None
+            pending.append(e)
+        elif ax == "NS":
+            e.data["direction"] = "north" if d > 0 else "south"
+        else:
+            e.data["direction"] = "east" if d > 0 else "west"
+    _inherit(rg, pending)
+    for e in pending:
+        if not e.data.get("direction"):
+            (x0, y0), (x1, y1) = e.data["xy"][0], e.data["xy"][-1]
+            if axes.get(e.data["route_ref"]) == "NS":
+                e.data["direction"] = "north" if y1 >= y0 else "south"
+            else:
+                e.data["direction"] = "east" if x1 >= x0 else "west"
+
+
+def _inherit(rg: RoadGraph, pending: list[EdgeRef]) -> None:
+    for _ in range(10):
+        if not pending:
+            break
+        still: list[EdgeRef] = []
+        for e in pending:
+            nb = [
+                x
+                for x in rg.g.in_edges(e.u, keys=True, data=True)
+                if x[3]["cls"] == "mainline"
+                and x[3].get("route_ref") == e.data["route_ref"]
+                and x[3].get("direction")
+            ]
+            nb += [
+                x
+                for x in rg.g.out_edges(e.v, keys=True, data=True)
+                if x[3]["cls"] == "mainline"
+                and x[3].get("route_ref") == e.data["route_ref"]
+                and x[3].get("direction")
+            ]
+            if nb:
+                e.data["direction"] = nb[0][3]["direction"]
+            else:
+                still.append(e)
+        pending[:] = still
+
+
+def assign_directions(rg: RoadGraph, routes_cfg: dict[str, Any], country: str = "JP") -> None:
+    """本線エッジに direction を付与する。
+
+    日本：up/down（起点に近づく向き＝上り）、環状は inner/outer。米国・カナダ：north/south/east/west
+    （routes.yaml の direction_mode で国ごとに切り替える）。
+    """
+    mode = (routes_cfg.get("direction_mode", {}) or {}).get(country, "origin")
+    if mode == "cardinal":
+        assign_cardinal_directions(rg)
+        return
     origins = route_origins(rg, routes_cfg)
     rings = set(routes_cfg.get("ring_routes", []) or [])
     pending: list[EdgeRef] = []

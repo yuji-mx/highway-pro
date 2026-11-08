@@ -35,13 +35,14 @@ def _sets(
     else:
         s = secs[secs["from_facility_id"].isin(fids) & secs["to_facility_id"].isin(fids)]
     if section_direction != "both" and len(s):
-        dirs = set(s["direction"])
-        want = (
-            section_direction
-            if section_direction in dirs
-            else ("down" if "down" in dirs else sorted(dirs)[0])
-        )
-        s = s[s["direction"] == want]
+        # 二重計上を避けるため路線ごとに片方向だけ数える（日本は既定 down、米国は south / west）
+        keep = []
+        for _, grp in s.groupby("route_ref"):
+            dirs = set(grp["direction"])
+            pref = [section_direction, "down", "south", "west", "outer"]
+            want = next((d for d in pref if d in dirs), sorted(dirs)[0])
+            keep.append(grp[grp["direction"] == want])
+        s = pd.concat(keep) if keep else s
     return {"facility": set(fids), "ramp": set(r["ramp_id"]), "section": set(s["section_id"])}
 
 

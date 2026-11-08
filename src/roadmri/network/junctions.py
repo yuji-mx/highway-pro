@@ -17,6 +17,7 @@ from roadmri.ingest.osm_pbf import OsmData
 from roadmri.network.dedupe import Candidate, Group
 from roadmri.network.graph import RoadGraph
 from roadmri.network.names import NameNormalizer, type_from_code
+from roadmri.units import exit_base, pretty_route
 
 _B32 = "0123456789bcdefghjkmnpqrstuvwxyz"
 
@@ -321,6 +322,93 @@ def _min_dist(xy: np.ndarray, g: Group) -> float:
     return float(d.min())
 
 
+def _junction_destination(rg: RoadGraph, g: Group) -> str | None:
+    """出口ノードから出るリンクの行先（destination:ref / destination / exit_to）。"""
+    for m in sorted(g.members, key=lambda x: x.osm_id):
+        if m.osm_type != "node" or m.osm_id not in rg.g:
+            continue
+        for _, _, d in rg.g.out_edges(m.osm_id, data=True):
+            if d["cls"] != "link":
+                continue
+            t = d["tags"]
+            parts = [
+                str(t[k]).replace(";", " / ")
+                for k in ("destination:ref", "destination", "exit_to")
+                if t.get(k)
+            ]
+            if parts:
+                return "、".join(dict.fromkeys(parts))
+    return None
+
+
+def merge_by_shared_components(groups: list[Group], comps: list[LinkComponent]) -> list[Group]:
+    """同じリンク連結成分（ランプ群）を共有するグループを統合する（§4.3.3-3 の補強条件）。
+
+    名称のある施設どうしは統合しない（隣接 IC が集散路でつながる場合など）。少なくとも一方が無名で、
+    かつ路線が異なる（JCT を両路線の出口番号で見ている）か、一方に出口番号がない場合に統合する。
+    """
+    owner: dict[int, int] = {}
+    for gi, g in enumerate(groups):
+        for m in g.members:
+            if m.osm_type == "node":
+                owner[m.osm_id] = gi
+    parent = list(range(len(groups)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def unnamed(g: Group) -> bool:
+        return not any(m.norm_key for m in g.members)
+
+    def routes(g: Group) -> set[str]:
+        return {m.route_ref for m in g.members if m.route_ref}
+
+    def exits(g: Group) -> set[str]:
+        return {e for m in g.members if (e := exit_base(m.exit_ref))}
+
+    reasons: dict[int, list[dict[str, Any]]] = {}
+    for c in comps:
+        gis = sorted({owner[n] for n in c.junction_nodes if n in owner})
+        for a_i in gis:
+            for b_i in gis:
+                if a_i >= b_i:
+                    continue
+                ga, gb = groups[a_i], groups[b_i]
+                if not (unnamed(ga) or unnamed(gb)):
+                    continue
+                if not (routes(ga) != routes(gb) or not exits(ga) or not exits(gb)):
+                    continue
+                ra, rb = find(a_i), find(b_i)
+                # 推移的な統合で、同じ路線の異なる出口番号が 1 施設に入らないようにする
+                ma = [m for gi2, g2 in enumerate(groups) if find(gi2) == ra for m in g2.members]
+                mb = [m for gi2, g2 in enumerate(groups) if find(gi2) == rb for m in g2.members]
+                ea = {(m.route_ref, exit_base(m.exit_ref)) for m in ma if m.exit_ref}
+                eb = {(m.route_ref, exit_base(m.exit_ref)) for m in mb if m.exit_ref}
+                if any(r1 == r2 and x1 != x2 for r1, x1 in ea for r2, x2 in eb):
+                    continue
+                if ra != rb:
+                    parent[max(ra, rb)] = min(ra, rb)
+                    reasons.setdefault(min(ra, rb), []).append(
+                        {
+                            "rule": "shared_link_component",
+                            "osm_ids": sorted(m.osm_id for m in ga.members + gb.members),
+                        }
+                    )
+    merged: dict[int, Group] = {}
+    for gi, g in enumerate(groups):
+        r = find(gi)
+        if r not in merged:
+            merged[r] = Group(members=[], reasons=[])
+        merged[r].members.extend(g.members)
+        merged[r].reasons.extend(g.reasons)
+    for r, rs in reasons.items():
+        merged[find(r)].reasons.extend(rs)
+    return sorted(merged.values(), key=lambda g: min(m.osm_id for m in g.members))
+
+
 def facility_id(country: str, normalized_name: str, route: str | None) -> str:
     h = hashlib.sha1(f"{country}|{normalized_name}|{route or ''}".encode()).hexdigest()[:8]
     return f"{country}-F-{h}"
@@ -385,7 +473,22 @@ def make_facilities(
         rx, ry = (rep[2].x, rep[2].y) if rep else (float(cx), float(cy))
         lon, lat = rg.proj.to_lonlat(rx, ry)
         lon_f, lat_f = float(lon), float(lat)
-        exit_nums = Counter(m.exit_ref for m in g.members if m.exit_ref)
+        exit_nums = Counter(
+            m.exit_ref for m in g.members if m.exit_ref and m.route_ref == primary
+        ) or Counter(m.exit_ref for m in g.members if m.exit_ref)
+        if country != "JP" and names:
+            display = Counter(names).most_common(1)[0][0]
+        if not norm_key and exit_nums:
+            # 米国などで出口ノードに名称がない場合：路線＋出口番号（基本番号）で名付ける
+            exits = sorted(
+                {(m.route_ref or primary or "", exit_base(m.exit_ref) or "") for m in g.members if m.exit_ref}
+            )
+            norm_key = " / ".join(f"{r} Exit {b}".strip() for r, b in exits)
+            display = " / ".join(f"{pretty_route(r)} Exit {b}".strip() for r, b in exits)
+            dest_txt = _junction_destination(rg, g)
+            if dest_txt:
+                display += f"（{dest_txt}）"
+            name_en = name_en or display
         nkey = norm_key or f"UNNAMED@{geohash(lon_f, lat_f)}"
         hull_pts = [rg.node_lonlat(n) for c in comps for n in c.nodes] + [(m.lon, m.lat) for m in g.members]
         hull = MultiPoint(hull_pts).convex_hull if hull_pts else Point(lon_f, lat_f)
@@ -489,6 +592,8 @@ def determine_types(facs: list[Facility], ramps_by_fac: dict[str, list[dict[str,
                 for r in ramps
                 if r["flow"] in ("entry", "exit") and r.get("mainline_route") == pr
             }
-            dirs = {d for _, d in have if d in ("up", "down", "inner", "outer")}
+            dirs = {
+                d for _, d in have if d in ("up", "down", "inner", "outer", "north", "south", "east", "west")
+            }
             complete = all((fl, d) in have for fl in ("entry", "exit") for d in dirs) and len(dirs) >= 2
             f.is_half_ic = bool(have) and not complete

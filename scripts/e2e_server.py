@@ -17,8 +17,9 @@ from roadmri.store.duckdb_store import Store
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8766
+    region = sys.argv[2] if len(sys.argv) > 2 else "tochigi_small"
     base = load_config()
-    d = base.root / "data" / "e2e"
+    d = base.root / "data" / f"e2e_{port}"
     if d.exists():
         shutil.rmtree(d)
     cfg = base.with_overrides(
@@ -32,5 +33,5 @@ if __name__ == "__main__":
         }
     )
     store = Store(cfg.path("processed_db"))
-    run_pipeline(cfg, "tochigi_small", store)
+    run_pipeline(cfg, region, store)
     uvicorn.run(create_app(cfg, store), host="127.0.0.1", port=port, log_level="warning")

@@ -1,0 +1,14 @@
+id: us_annarbor_small
+label: Ann Arbor, MI（I-94 / US-23 周辺、テスト fixture）
+country: US
+range:
+  type: bbox
+  bbox: [-83.77, 42.215, -83.645, 42.245]
+  admin_codes: ["26"]
+  buffer_km: 0
+  label: Ann Arbor, MI
+pbf:
+  local: tests/fixtures/us/annarbor_small.osm.pbf
+dem: us_fixture
+dem_cache_dirs: [tests/fixtures/dem/usgs]
+units: imperial

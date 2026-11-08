@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { useCursor, useLayers } from "../../state/stores";
+import { useSettings } from "../../state/units";
 import { DATA_LAYERS, facilityLayers, lineLayers, loadLayer, type DataLayer } from "./layers";
 
 export interface MapClick {
@@ -36,6 +37,8 @@ interface Props {
   interactive?: boolean;
   showLabels?: boolean;
   testId?: string;
+  /** 複数国のデータがあるとき、初期表示をこの国の施設範囲に合わせる（"JP" / "US" など）。 */
+  country?: string | null;
 }
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -103,7 +106,7 @@ export default function RoadMriMap(p: Props) {
     mapRef.current = m;
     (window as any).__roadmriMaps = { ...((window as any).__roadmriMaps ?? {}), [p.testId ?? "map"]: m };
     m.on("load", () => setReady(true));
-    if (p.interactive ?? true) m.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
+    if (p.interactive ?? true) m.addControl(new maplibregl.ScaleControl({ unit: useSettings.getState().units === "imperial" ? "imperial" : "metric" }), "bottom-left");
     p.onMap?.(m);
     return () => {
       markers.current.forEach((x) => x.remove());
@@ -184,10 +187,17 @@ export default function RoadMriMap(p: Props) {
   useEffect(() => {
     const m = mapRef.current;
     if (!m || !ready) return;
-    const b = p.focus ?? (p.center ? null : boundsOf(data.mainline ?? EMPTY) ?? boundsOf(data.facilities ?? EMPTY));
+    const facs = data.facilities ?? EMPTY;
+    const countries = new Set(facs.features.map((f) => String(f.properties?.facility_id ?? "").slice(0, 2)));
+    const want = p.country ?? (countries.size > 1 ? [...countries].sort()[0] : null);
+    const byCountry = want
+      ? boundsOf({ type: "FeatureCollection", features: facs.features.filter((f) => String(f.properties?.facility_id ?? "").startsWith(`${want}-`)) })
+      : null;
+    const padded = byCountry ? ([byCountry[0] - 0.05, byCountry[1] - 0.04, byCountry[2] + 0.05, byCountry[3] + 0.04] as [number, number, number, number]) : null;
+    const b = p.focus ?? (p.center ? null : padded ?? boundsOf(data.mainline ?? EMPTY) ?? boundsOf(facs));
     if (b) m.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 30, animate: false, maxZoom: 16 });
     else if (p.center) m.jumpTo({ center: p.center, zoom: p.zoom ?? 14 });
-  }, [ready, p.focus, p.center, p.zoom, data.mainline, data.facilities]);
+  }, [ready, p.focus, p.center, p.zoom, p.country, data.mainline, data.facilities]);
 
   // クリック・ホバー・カーソル
   useEffect(() => {

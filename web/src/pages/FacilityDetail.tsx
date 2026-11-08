@@ -61,7 +61,11 @@ function EditCard({ f }: { f: any }) {
       </div>
       <div className="row" style={{ marginTop: 8 }}>
         <button className="primary" onClick={() => save.mutate()} disabled={save.isPending} data-testid="edit-save">保存</button>
-        <a href={`https://maps.gsi.go.jp/#17/${f.lat}/${f.lon}/&base=seamlessphoto`} target="_blank" rel="noreferrer">地理院地図（航空写真）で確認 ↗</a>
+        {f.country === "JP" ? (
+          <a href={`https://maps.gsi.go.jp/#17/${f.lat}/${f.lon}/&base=seamlessphoto`} target="_blank" rel="noreferrer">地理院地図（航空写真）で確認 ↗</a>
+        ) : (
+          <a href={`https://www.openstreetmap.org/#map=17/${f.lat}/${f.lon}`} target="_blank" rel="noreferrer">OpenStreetMap で確認 ↗</a>
+        )}
       </div>
       <h3 style={{ marginTop: 12 }}>修正履歴</h3>
       <div data-testid="edit-history" style={{ maxHeight: 200, overflow: "auto" }}>
@@ -106,11 +110,11 @@ export default function FacilityDetail() {
     { key: "flow", label: "区分", get: (r) => t(`flow.${r.flow}`, r.flow) },
     { key: "carriageway", label: "方向", get: (r) => t(`dir.${r.carriageway}`, r.carriageway) },
     { key: "fromto", label: "接続元→接続先", get: (r) => `${r.from_ref?.kind ?? ""}→${r.to_ref?.kind ?? ""}` },
-    { key: "length_m", label: "長さ", num: true, get: (r) => r.length_m },
-    { key: "min_radius_m", label: "最小R", num: true },
+    { key: "length_m", label: "長さ", num: true, unit: "m", get: (r) => r.length_m },
+    { key: "min_radius_m", label: "最小R", num: true, unit: "m" },
     { key: "grade_up_max_w100", label: "100m上り", num: true },
     { key: "grade_down_max_w100", label: "最大下り", num: true },
-    { key: "elev_diff_m", label: "標高差", num: true },
+    { key: "elev_diff_m", label: "標高差", num: true, unit: "m" },
     { key: "quality_level", label: "品質", render: (r) => <QualityBadge q={r.quality_level} /> },
     { key: "dem_quality", label: "DEM品質", render: (r) => <QualityBadge q={r.dem_quality} /> },
   ];

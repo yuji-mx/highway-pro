@@ -31,6 +31,7 @@ export default function Region() {
     if (tab === 4) return { type: "circle", circle: { lon: Number(circle.lon), lat: Number(circle.lat), radius_km: Number(circle.r) } };
     if (tab === 7 || tab === 8) return { type: "polygon", polygon: JSON.parse(geo) };
     if (tab === 5) return { type: "route", route_refs: text.split(",").map((s) => s.trim()) };
+    if (tab === 2) return { type: "admin", admin_codes: text.split(",").map((s) => s.trim()), bbox: region?.range?.bbox };
     return region?.range;
   };
   const preview = useMemo<Overlay[]>(() => {
@@ -47,10 +48,11 @@ export default function Region() {
   const apply = useMutation({
     mutationFn: async () => {
       let id = region?.id;
-      if (tab >= 3 && tab !== 6) {
+      if ((tab >= 3 && tab !== 6) || tab === 2) {
         const spec = rangeSpec();
         id = `custom_${Date.now()}`;
-        await api.post("/regions", { id, label: "カスタム範囲", country, range: spec, dem: region?.dem ?? "jp", pbf: region?.pbf ?? {} });
+        await api.post("/regions", { id, label: "カスタム範囲", country: country === "NA" ? "US" : country, range: spec,
+          dem: region?.dem ?? (country === "NA" ? "us" : "jp"), pbf: region?.pbf ?? {} });
       }
       const j: any = await api.post("/pipeline/run", { region: id });
       await waitJob(j.job_id, (p, m) => setProgress({ p, m }));
@@ -67,7 +69,12 @@ export default function Region() {
         <span className="row" style={{ marginLeft: 12 }}>
           {[["JP", "日本"], ["NA", "北米"]].map(([k, l]) => <button key={k} className={country === k ? "primary" : ""} onClick={() => setCountry(k)}>{l}</button>)}
         </span></h1>
-      {country === "NA" && <div className="warn" style={{ marginBottom: 8 }}>北米（州・郡、USGS 3DEP）は P5 で対応予定です。データ構造と DEM アダプタは用意済みです。</div>}
+      {country === "NA" && (
+        <div className="note" style={{ marginBottom: 8 }} data-testid="na-note">
+          米国：OSM（Geofabrik の州別 PBF）＋ USGS 3DEP 標高（The National Map、登録不要、NAVD88）。方向は北行き・南行き・東行き・西行き、
+          出口番号のみの出口は「路線＋出口番号」で施設名を付けます。カナダは地域設定と DEM（NRCan）アダプタが未整備です。
+        </div>
+      )}
       <div className="grid2">
         <div className="stack">
           <div className="card"><h3>地域プリセット</h3>
@@ -80,7 +87,7 @@ export default function Region() {
             <div className="tabs">{TABS.map((tb, i) => <button key={tb} className={tab === i ? "on" : ""} onClick={() => setTab(i)}>{tb}</button>)}</div>
             {tab === 0 && <div className="note">都道府県は地域プリセットから選択します（JIS コード、例：栃木 09）。境界ポリゴンは data/raw/boundaries/ に保存したものを使います。</div>}
             {tab === 1 && <div className="note">市区町村コードによる指定：境界ポリゴン（admin_level 7）を取得後に利用できます。</div>}
-            {tab === 2 && <div className="note">州・郡（FIPS）は P5 で対応予定です。</div>}
+            {tab === 2 && <label className="form">州 FIPS コード（例：ミシガン 26、コロラド 08。境界ポリゴンがない場合は地域プリセットの矩形で代替）<input value={text} onChange={(e) => setText(e.target.value)} data-testid="fips-input" /></label>}
             {tab === 3 && <label className="form">北西・南東（西,南,東,北）<input value={bbox} onChange={(e) => setBbox(e.target.value)} data-testid="bbox-input" /></label>}
             {tab === 4 && <div className="form"><label>経度<input value={circle.lon} onChange={(e) => setCircle({ ...circle, lon: e.target.value })} /></label>
               <label>緯度<input value={circle.lat} onChange={(e) => setCircle({ ...circle, lat: e.target.value })} /></label>

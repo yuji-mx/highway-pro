@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Suspense, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api/client";
+import { useSettings } from "./state/units";
 import { Skeleton, Toasts } from "./components/common/ui";
 import { t } from "./i18n";
 import {
@@ -56,6 +57,7 @@ function GlobalSearch() {
 export default function App() {
   const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<any>("/meta") });
   const loc = useLocation();
+  const { units, setUnits } = useSettings();
   useEffect(() => {
     const m = loc.pathname.match(/^\/(facility|ramp)\/(.+)$/);
     if (m) {
@@ -78,8 +80,13 @@ export default function App() {
           <span className="chip" title="OSM データの日付">OSM {osmDate ?? "—"}</span>
           <span className="chip" title="使用 DEM">DEM {dem || "—"}</span>
           <span className="chip ok" title="取得後はネットワークなしで動作します">オフライン動作可</span>
+          {(m?.countries ?? []).length > 0 && (
+            <span className="chip" title="データに含まれる国" data-testid="country-chip">{(m?.countries ?? []).map((c: string) => t(`country.${c}`, c)).join("・")}</span>
+          )}
           <span className="chip" title="現在の run" data-testid="run-chip">run {m?.run?.run_id?.slice(0, 10) ?? "—"}</span>
         </div>
+        <button className="ghost" title={t(`units.${units === "metric" ? "imperial" : "metric"}`) + "に切り替え"} data-testid="units-toggle"
+          onClick={() => setUnits(units === "metric" ? "imperial" : "metric")}>{units === "metric" ? "m・km/h" : "ft・mph"}</button>
         <GlobalSearch />
       </header>
       <nav className="nav" aria-label="画面">
@@ -100,7 +107,7 @@ export default function App() {
           <div className="note" style={{ marginTop: 6 }}>{m?.attribution}</div>
         </div>
       </nav>
-      <main className="main">
+      <main className="main" key={units}>
         <Suspense fallback={<div className="page"><Skeleton h={300} /></div>}>
           <Routes>
             <Route path="/" element={<Navigate to={m && !m.has_data ? "/region" : "/mri"} replace />} />

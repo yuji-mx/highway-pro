@@ -24,15 +24,23 @@ def utm_epsg(lon: float, lat: float) -> int:
 
 
 @lru_cache(maxsize=16)
-def _transformers(epsg: int) -> tuple[Transformer, Transformer]:
-    fwd = Transformer.from_crs(WGS84, f"EPSG:{epsg}", always_xy=True)
-    inv = Transformer.from_crs(f"EPSG:{epsg}", WGS84, always_xy=True)
+def _transformers(crs: int | str) -> tuple[Transformer, Transformer]:
+    target = f"EPSG:{crs}" if isinstance(crs, int) else crs
+    fwd = Transformer.from_crs(WGS84, target, always_xy=True)
+    inv = Transformer.from_crs(target, WGS84, always_xy=True)
     return fwd, inv
+
+
+def transverse_mercator(lon0: float) -> str:
+    """UTM と同じ縮尺係数・偽東距で、中央子午線を範囲の重心に置いた横メルカトル。"""
+    return (
+        f"+proj=tmerc +lat_0=0 +lon_0={lon0:.6f} +k=0.9996 +x_0=500000 +y_0=0 +datum=WGS84 +units=m +no_defs"
+    )
 
 
 @dataclass(frozen=True)
 class Projector:
-    epsg: int
+    epsg: int | str
     _fwd: Transformer = field(init=False, repr=False, compare=False)
     _inv: Transformer = field(init=False, repr=False, compare=False)
 
@@ -44,6 +52,15 @@ class Projector:
     @classmethod
     def for_lonlat(cls, lon: float, lat: float) -> Projector:
         return cls(utm_epsg(lon, lat))
+
+    @classmethod
+    def for_bounds(cls, minlon: float, minlat: float, maxlon: float, maxlat: float) -> Projector:
+        """範囲が 1 つの UTM ゾーンに収まればその UTM、2 ゾーン以上にまたがる場合（米国の州など）は
+        重心経度を中央子午線とする横メルカトル（ADR-0013）。"""
+        lon0, lat0 = (minlon + maxlon) / 2, (minlat + maxlat) / 2
+        if utm_zone(minlon) == utm_zone(maxlon):
+            return cls(utm_epsg(lon0, lat0))
+        return cls(transverse_mercator(lon0))
 
     def to_xy(self, lon: FloatArray | float, lat: FloatArray | float) -> tuple[FloatArray, FloatArray]:
         x, y = self._fwd.transform(np.asarray(lon, dtype=float), np.asarray(lat, dtype=float))

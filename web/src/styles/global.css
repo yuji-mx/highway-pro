@@ -15,9 +15,13 @@ input[type=checkbox], input[type=radio] { accent-color: var(--cyan); }
 .mut { color: var(--mut); } .dim { color: var(--dim); }
 .app { display: grid; grid-template-rows: 50px 1fr; grid-template-columns: 196px 1fr; height: 100%; }
 .hdr { grid-column: 1 / 3; display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.logo { font-weight: 700; letter-spacing: .14em; color: var(--white); }
+.hdr > * { flex-shrink: 0; }
+.hdr .chips { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
+.hdr button { white-space: nowrap; }
+.logo { font-weight: 700; letter-spacing: .14em; color: var(--white); white-space: nowrap; }
 .logo b { color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
-.sub { color: var(--mut); font-size: 11px; }
+.sub { color: var(--mut); font-size: 11px; white-space: nowrap; }
+@media (max-width: 1500px) { .sub { display: none; } }
 .chips { display: flex; gap: 6px; margin-left: auto; flex-wrap: nowrap; overflow: hidden; }
 .chip { font-size: 11px; padding: 2px 8px; border: 1px solid var(--line2); border-radius: 10px; color: var(--mut); white-space: nowrap; }
 .chip.ok { border-color: #1e5b3f; color: var(--green); }

@@ -32,6 +32,18 @@ def stats_presets(s: AppState = Depends(state)) -> list[dict[str, Any]]:
         "FROM facility WHERE in_range"
     )
     out: list[dict[str, Any]] = []
+    countries = list(s.store.df("SELECT DISTINCT country FROM facility ORDER BY 1")["country"])
+    if len(countries) > 1:
+        ja = {"JP": "日本", "US": "米国", "CA": "カナダ"}
+        a, b = countries[0], countries[1]
+        out.append(
+            {
+                "id": f"country_{a}_{b}",
+                "label": f"{ja.get(a, a)} vs {ja.get(b, b)}",
+                "range_a": {"type": "country", "countries": [a], "label": ja.get(a, a)},
+                "range_b": {"type": "country", "countries": [b], "label": ja.get(b, b)},
+            }
+        )
     for i, a in enumerate(routes):
         for b in routes[i + 1 :]:
             out.append(

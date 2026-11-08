@@ -85,7 +85,8 @@ export function lineLayers(src: "mainline" | "ramps", o: StyleOpts): any[] {
   const variants: [string, any, number | undefined, number | undefined][] =
     src === "mainline"
       ? [
-          ["lo", ["==", ["get", "direction"], "down"], undefined, 13],
+          // 低ズームでは片方向だけ描く（日本は下り、米国・カナダは南行き・西行き）
+          ["lo", ["in", ["get", "direction"], ["literal", ["down", "south", "west", "outer", "unknown"]]], undefined, 13],
           ["hi", true, 13, undefined],
         ]
       : [["all", true, undefined, undefined]];

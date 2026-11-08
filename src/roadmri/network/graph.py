@@ -32,7 +32,9 @@ def route_ref_of(tags: dict[str, Any], routes_cfg: dict[str, Any]) -> str | None
     name = tags.get("name") or tags.get("name:ja")
     routes = routes_cfg.get("routes", {}) or {}
     if ref:
-        tok = str(ref).split(";")[0].strip()
+        from roadmri.units import normalize_route_ref
+
+        tok = normalize_route_ref(str(ref).split(";")[0])
         for key, r in routes.items():
             if tok == key or str(ref) in [str(a) for a in r.get("aliases", [])]:
                 return str(key)

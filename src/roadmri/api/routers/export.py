@@ -23,7 +23,9 @@ def export(body: ExportRequest, s: AppState = Depends(state)) -> dict[str, Any]:
         from roadmri.analysis.ranges import resolve_facilities
         from roadmri.analysis.search import run_query
 
-        fac = s.store.df("SELECT facility_id, lon, lat, route_refs, shape_class, admin_code FROM facility")
+        fac = s.store.df(
+            "SELECT facility_id, lon, lat, route_refs, shape_class, admin_code, country FROM facility"
+        )
         fids = resolve_facilities(body.range, fac, lambda q: run_query(s.store, q))
         if body.dataset == "facilities":
             ids = fids

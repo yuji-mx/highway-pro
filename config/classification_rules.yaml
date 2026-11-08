@@ -1,5 +1,5 @@
 # 形状分類ルール（§4.9、付録 C）。変更したら version を上げる。
-version: rules-1.0.0
+version: rules-1.1.0
 classes:
   - id: trumpet_ic
     label: トランペット型
@@ -168,4 +168,40 @@ required_penalty: 3.0
 fallback:
   label: 分類不能
   reason_template_ja: "必須条件を満たす分類がありません（{unmet}）"
-country_overrides: {US: {}, CA: {}}   # P5
+# 国別の分岐（§4.11.6、§17-8）。disable で既定の分類を外し、classes で追加・置換する。
+# 北米：料金所のない IC が大半なので、トランペット型の判定に料金所を使わない。部分クローバー（parclo）と
+# シングルポイント（SPUI）が多いため、それぞれの加点を強める。
+country_overrides:
+  US: &north_america
+    disable: [trumpet_ic, partial_cloverleaf, single_point]
+    classes:
+      - id: trumpet_ic_na
+        label: トランペット型
+        applies_to: [IC]
+        required:
+          - {feature: mainline_count, op: eq, value: 1}
+          - {feature: loop_ramp_count, op: eq, value: 1}
+          - {feature: general_road_connections, op: eq, value: 1}
+        score:
+          - {feature: loop_ramp_count, op: eq, value: 1, weight: 2.0, reason_ja: "ループランプが1本"}
+          - {feature: ramp_count, op: between, value: [3, 5], weight: 1.0, reason_ja: "本線接続ランプが3〜5本"}
+      - id: partial_cloverleaf_na
+        label: 部分クローバー型
+        applies_to: [IC]
+        required:
+          - {feature: loop_ramp_count, op: between, value: [1, 3]}
+          - {feature: general_road_connections, op: gte, value: 2}
+        score:
+          - {feature: has_general_road, op: eq, value: true, weight: 1.0, reason_ja: "平面交差で一般道に接続"}
+          - {feature: loop_ramp_count, op: eq, value: 2, weight: 1.5, reason_ja: "ループランプが2本（parclo）"}
+          - {feature: ramp_count, op: between, value: [4, 6], weight: 1.0, reason_ja: "本線接続ランプが4〜6本"}
+      - id: single_point_na
+        label: シングルポイント型
+        applies_to: [IC]
+        required:
+          - {feature: loop_ramp_count, op: eq, value: 0}
+          - {feature: general_road_connections, op: eq, value: 1}
+          - {feature: ramp_count, op: gte, value: 4}
+        score:
+          - {feature: crossing_road_count, op: eq, value: 1, weight: 2.0, reason_ja: "単一の交差点に全ランプが集まる（SPUI）"}
+  CA: *north_america

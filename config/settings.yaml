@@ -21,6 +21,8 @@ http:
   rate_limits:             # host: {min_interval_s, max_concurrency, per_second}
     overpass-api.de: {min_interval_s: 10.0, max_concurrency: 1}
     cyberjapandata.gsi.go.jp: {per_second: 20, max_concurrency: 4}
+    elevation.nationalmap.gov: {per_second: 5, max_concurrency: 2}
+    api.openstreetmap.org: {min_interval_s: 3.0, max_concurrency: 1}
     default: {max_concurrency: 4}
 user:
   name: null               # null の場合は OS のユーザー名

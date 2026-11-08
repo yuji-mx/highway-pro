@@ -13,10 +13,19 @@ export default defineConfig({
     acceptDownloads: true,
     launchOptions: { args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"] },
   },
-  webServer: {
-    command: `cd .. && uv run python scripts/e2e_server.py ${PORT}`,
-    url: `http://127.0.0.1:${PORT}/api/meta`,
-    timeout: 180_000,
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: [
+    {
+      command: `cd .. && uv run python scripts/e2e_server.py ${PORT}`,
+      url: `http://127.0.0.1:${PORT}/api/meta`,
+      timeout: 180_000,
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      // 日米横断：宇都宮IC〜鹿沼IC と Ann Arbor, MI（I-94 / US-23）を 1 つの DB に公開
+      command: `cd .. && uv run python scripts/e2e_server.py ${PORT + 1} tochigi_small,us_annarbor_small`,
+      url: `http://127.0.0.1:${PORT + 1}/api/meta`,
+      timeout: 180_000,
+      reuseExistingServer: !process.env.CI,
+    },
+  ],
 });

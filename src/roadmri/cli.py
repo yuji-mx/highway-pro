@@ -39,6 +39,13 @@ def fetch(
     force: Annotated[bool, typer.Option(help="キャッシュがあっても再取得する")] = False,
 ) -> None:
     """OSM・DEM を取得する（キャッシュ利用）。"""
+    from roadmri.pipeline import split_regions
+
+    ids = split_regions(_region_id(range_))
+    if len(ids) > 1:
+        for rid in ids:
+            fetch(rid, source, force)
+        return
     from roadmri.analysis.ranges import range_geometry
     from roadmri.ingest.http import HttpClient
     from roadmri.ingest.overpass import fetch_overpass
@@ -85,7 +92,9 @@ def fetch(
 
 @app.command()
 def build(
-    range_: Annotated[str, typer.Option("--range", help="地域 ID")] = "tochigi",
+    range_: Annotated[
+        str, typer.Option("--range", help="地域 ID（カンマ区切りで複数地域を 1 つの DB に公開）")
+    ] = "tochigi",
     from_step: Annotated[str | None, typer.Option("--from-step")] = None,
     to_step: Annotated[str | None, typer.Option("--to-step")] = None,
     source: Annotated[str | None, typer.Option(help="overpass で Overpass 取得データを使う")] = None,

@@ -24,8 +24,9 @@ def classify(
     features: dict[str, Any], rules: dict[str, Any], temperature: float, country: str = "JP"
 ) -> ClassResult:
     ftype = features.get("facility_type")
-    classes = list(rules.get("classes", []))
     override = (rules.get("country_overrides") or {}).get(country) or {}
+    disabled = set(override.get("disable", []) or []) if isinstance(override, dict) else set()
+    classes = [c for c in rules.get("classes", []) if c.get("id") not in disabled]
     classes += override.get("classes", []) if isinstance(override, dict) else []
     penalty = float(rules.get("required_penalty", 3.0))
     cands: list[tuple[str, float, bool, list[dict[str, Any]]]] = []

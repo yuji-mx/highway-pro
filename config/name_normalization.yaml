@@ -15,4 +15,12 @@ suffixes:
   - {pattern: SA, code: SA}
   - {pattern: PA, code: PA}
   - {pattern: TB, code: TB}
+  # 英語（米国・カナダ）。照合は空白を除き大文字小文字を区別しない
+  - {pattern: Service Plaza, code: SA}
+  - {pattern: Travel Plaza, code: SA}
+  - {pattern: Service Area, code: SA}
+  - {pattern: Rest Area, code: PA}
+  - {pattern: Welcome Center, code: PA}
+  - {pattern: Interchange, code: IC}
+  - {pattern: Junction, code: JCT}
   - {pattern: 料金所, code: TB}

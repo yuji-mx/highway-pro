@@ -16,7 +16,9 @@ def run_query(store: Store, q: dict[str, Any]) -> pd.DataFrame:
     q = {**q, "target": target}
     ids = None
     if q.get("range"):
-        fac = store.df("SELECT facility_id, lon, lat, route_refs, shape_class, admin_code FROM facility")
+        fac = store.df(
+            "SELECT facility_id, lon, lat, route_refs, shape_class, admin_code, country FROM facility"
+        )
         ids = resolve_facilities(q["range"], fac, lambda qq: run_query(store, qq))
     sql, params = compile_query(q, ids)
     return store.df(sql, params)

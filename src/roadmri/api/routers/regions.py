@@ -15,7 +15,7 @@ router = APIRouter(tags=["regions"])
 
 def _status(s: AppState, r: dict[str, Any]) -> str:
     run = s.store.current_run()
-    if run and run.get("region_id") == r.get("id"):
+    if run and r.get("id") in str(run.get("region_id") or "").split("+"):
         return "processed"
     pbf = r.get("pbf", {})
     if pbf.get("local"):

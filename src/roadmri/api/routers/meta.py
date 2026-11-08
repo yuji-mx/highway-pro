@@ -19,6 +19,7 @@ def meta(s: AppState = Depends(state)) -> dict[str, Any]:
     counts = {
         t: int(s.store.scalar(f"SELECT count(*) FROM {t}") or 0) for t in ("facility", "ramp", "section")
     }
+    countries = list(s.store.df("SELECT DISTINCT country FROM facility ORDER BY 1")["country"])
     review = int(s.store.scalar("SELECT count(*) FROM facility WHERE review_status='needs_review'") or 0)
     return {
         "app": "ROAD MRI",
@@ -29,5 +30,6 @@ def meta(s: AppState = Depends(state)) -> dict[str, Any]:
         "counts": {**counts, "needs_review": review},
         "attribution": attribution_text([{"attribution": a} for a in dems.get("attribution", [])]),
         "offline": True,
+        "countries": countries,
         "has_data": counts["facility"] > 0,
     }

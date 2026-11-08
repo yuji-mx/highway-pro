@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import type { SamplePoint } from "../../api/types";
 import { useCursor } from "../../state/stores";
+import { convert, unitLabel } from "../../state/units";
+import { fmt } from "../common/ui";
 import EChart, { AXIS, TOOLTIP } from "./EChart";
 import { nearest } from "./ProfileChart";
 
@@ -12,9 +14,9 @@ export default function CurvatureChart({ points, height = 200 }: { points: Sampl
     grid: { left: 52, right: 14, top: 14, bottom: 28 },
     tooltip: { ...TOOLTIP, trigger: "axis", formatter: (ps: any) => {
       const k = ps[0]?.data?.[1];
-      return `${Number(ps[0]?.axisValue).toFixed(0)} m<br>κ ${k == null ? "—" : k.toFixed(5)} 1/m<br>R ${k ? Math.round(1 / Math.abs(k)) + " m（" + (k > 0 ? "左" : "右") + "）" : "—"}`;
+      return `${fmt(Number(ps[0]?.axisValue), 0, " m")}<br>κ ${k == null ? "—" : k.toFixed(5)} 1/m<br>R ${k ? fmt(1 / Math.abs(k), 0, " m") + "（" + (k > 0 ? "左" : "右") + "）" : "—"}`;
     } },
-    xAxis: { type: "value", name: "距離 [m]", min: 0, max: points.length ? Math.ceil(points[points.length - 1].s_m) : 1, ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v: number) => String(Math.round(v)) } },
+    xAxis: { type: "value", name: `距離 [${unitLabel("m")}]`, min: 0, max: points.length ? Math.ceil(points[points.length - 1].s_m) : 1, ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v: number) => String(Math.round(convert(v, "m")[0])) } },
     yAxis: { type: "value", name: "1/R [1/m]", ...AXIS },
     series: [{ type: "line", showSymbol: false, data: points.map((p) => [p.s_m, p.curvature]), lineStyle: { color: "#a98bff", width: 1.6 },
       areaStyle: { color: "rgba(169,139,255,.12)" }, markLine: { symbol: "none", silent: true, data: [{ yAxis: 0 }], lineStyle: { color: "#28323e" } } }],

@@ -97,12 +97,13 @@ export default function MriView() {
   const targets = useTargets();
   const [sp, setSp] = useSearchParams();
   const sel = sp.get("sel");
+  const country = sp.get("country");
   const kind = sp.get("kind") as "facility" | "ramp" | null;
   const [cursor, setCursor] = useState<[number, number] | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<any>("/meta") });
   const shapes = useMemo(() => [], []);
-  const select = (k: "facility" | "ramp", id: string) => setSp({ kind: k, sel: id });
+  const select = (k: "facility" | "ramp", id: string) => setSp({ ...(country ? { country } : {}), kind: k, sel: id });
   const onClick = (c: MapClick) => select(c.kind, c.id);
   const legend = legendFor(L.metric, undefined, shapes);
   const exportPng = () => {
@@ -117,7 +118,7 @@ export default function MriView() {
     <div style={{ position: "relative", height: "100%" }}>
       <RoadMriMap height="100%" onClick={onClick} onCursor={setCursor} targetRampIds={targets.rampIds}
         selectedFacilityId={kind === "facility" ? sel : null} selectedRampId={kind === "ramp" ? sel : null}
-        onMap={(m) => (mapRef.current = m)} testId="mri-map" />
+        onMap={(m) => (mapRef.current = m)} testId="mri-map" country={country} />
       <div className="float" style={{ left: 10, top: 10, width: 190 }} data-testid="layer-panel">
         <div className="note">レイヤー</div>
         {LAYER_KEYS.map((k) => (
@@ -136,7 +137,11 @@ export default function MriView() {
       <div className="float row" style={{ left: "50%", top: 10, transform: "translateX(-50%)" }}>
         <button onClick={() => mapRef.current?.zoomIn()} aria-label="拡大">＋</button>
         <button onClick={() => mapRef.current?.zoomOut()} aria-label="縮小">－</button>
-        <button onClick={() => setSp({})}>全体</button>
+        <button onClick={() => setSp(country ? { country } : {})}>全体</button>
+        {(meta.data?.countries ?? []).length > 1 && (meta.data.countries as string[]).map((c) => (
+          <button key={c} className={(country ?? [...meta.data.countries].sort()[0]) === c ? "primary" : ""} data-testid={`country-${c}`}
+            onClick={() => setSp({ country: c })}>{t(`country.${c}`, c)}</button>
+        ))}
         <button className={L.glow ? "primary" : ""} onClick={() => L.set({ glow: !L.glow })}>ランプ発光</button>
         <button className={L.highlightTargets ? "primary" : ""} onClick={() => L.set({ highlightTargets: !L.highlightTargets })}>
           検索結果を強調（{targets.rampIds.length}）

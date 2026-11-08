@@ -14,11 +14,11 @@ import { useCompareTray, useRanges, useSimilar, useTargets, useToast } from "../
 
 type Mode = "ramp" | "facility" | "section";
 interface Form {
-  route: string; flows: string[]; lenMin: string; lenMax: string; rMax: string; upMin: string; downMin: string; window: string;
+  country: string; route: string; flows: string[]; lenMin: string; lenMax: string; rMax: string; upMin: string; downMin: string; window: string;
   zMin: string; dem: string; osm: string; shapes: string[]; type: string; confMin: string; rampsMin: string; loop: string;
   facUpMin: string; facRMax: string; distMin: string; gradeMeanMin: string; extra: { field: string; op: string; value: string }[]; extraMode: "all" | "any";
 }
-const EMPTY_FORM: Form = { route: "", flows: [], lenMin: "", lenMax: "", rMax: "", upMin: "", downMin: "", window: "100", zMin: "", dem: "",
+const EMPTY_FORM: Form = { country: "", route: "", flows: [], lenMin: "", lenMax: "", rMax: "", upMin: "", downMin: "", window: "100", zMin: "", dem: "",
   osm: "", shapes: [], type: "", confMin: "", rampsMin: "", loop: "", facUpMin: "", facRMax: "", distMin: "", gradeMeanMin: "", extra: [], extraMode: "all" };
 const FLOWS = ["entry", "exit", "jct_link", "collector_distributor", "facility_link", "toll_link"];
 const SHAPES = ["トランペット型", "ダイヤモンド型", "変形ダイヤモンド型", "クローバーリーフ型", "部分クローバー型", "ハーフIC", "スマートIC", "複合型", "Y型", "T型", "タービン型", "スタック型", "SA/PA", "分類不能"];
@@ -41,6 +41,7 @@ function coerce(v: string): any {
 export function buildQuery(mode: Mode, f: Form): QueryDSL {
   const all: any[] = [];
   const add = (field: string, op: string, value: any) => value != null && value !== "" && all.push({ field, op, value });
+  add("country", "eq", f.country || null);
   add("route_ref", "eq", f.route || null);
   if (mode === "ramp") {
     if (f.flows.length === 1) add("flow", "eq", f.flows[0]);
@@ -148,9 +149,9 @@ export default function Search() {
   const rampCols: Col<any>[] = [
     { key: "ramp_id", label: "ID", render: (r) => <a onClick={(e) => { e.stopPropagation(); nav(`/ramp/${r.ramp_id}`); }} className="mono" style={{ cursor: "pointer" }}>{r.ramp_id.slice(-12)}</a> },
     { key: "facility_name", label: "施設" }, { key: "flow", label: "区分", get: (r) => t(`flow.${r.flow}`, r.flow) },
-    { key: "shape_class", label: "形状" }, { key: "length_m", label: "長さ", num: true }, { key: "min_radius_m", label: "最小R", num: true },
+    { key: "shape_class", label: "形状" }, { key: "length_m", label: "長さ", num: true, unit: "m" }, { key: "min_radius_m", label: "最小R", num: true, unit: "m" },
     { key: "grade_up_max_w100", label: "100m上り", num: true }, { key: "grade_down_max_w100", label: "100m下り", num: true },
-    { key: "elev_diff_m", label: "標高差", num: true }, { key: "z_max", label: "最高標高", num: true },
+    { key: "elev_diff_m", label: "標高差", num: true, unit: "m" }, { key: "z_max", label: "最高標高", num: true, unit: "m" },
     { key: "dem_quality", label: "DEM品質", render: (r) => <QualityBadge q={r.dem_quality} /> },
     { key: "difficulty", label: "難易度候補値", num: true, render: (r) => <DifficultyBar comp={r.difficulty_components} value={r.difficulty} /> },
     { key: "ops", label: "操作", sortable: false, render: (r) => <span className="row" style={{ gap: 4 }}>
@@ -162,8 +163,8 @@ export default function Search() {
     { key: "facility_type", label: "種別", render: (r) => <TypeBadge type={r.facility_type} /> }, { key: "shape_class", label: "形状" },
     { key: "shape_confidence", label: "信頼度", num: true, render: (r) => <ConfBar v={r.shape_confidence} /> },
     { key: "ramp_count", label: "ランプ数", num: true }, { key: "loop_ramp_count", label: "ループ", num: true },
-    { key: "mean_ramp_length_m", label: "平均ランプ長", num: true }, { key: "min_radius_m", label: "最小R", num: true },
-    { key: "grade_up_max_w100", label: "最大100m上り", num: true }, { key: "max_elev_diff_m", label: "最大高低差", num: true },
+    { key: "mean_ramp_length_m", label: "平均ランプ長", num: true, unit: "m" }, { key: "min_radius_m", label: "最小R", num: true, unit: "m" },
+    { key: "grade_up_max_w100", label: "最大100m上り", num: true }, { key: "max_elev_diff_m", label: "最大高低差", num: true, unit: "m" },
     { key: "quality_level", label: "品質", render: (r) => <QualityBadge q={r.quality_level} /> },
     { key: "ops", label: "操作", sortable: false, render: (r) => <span className="row" style={{ gap: 4 }}>
       <button className="ghost" onClick={(e) => { e.stopPropagation(); setSim({ kind: "facility", id: r.facility_id }); }} data-testid="row-similar">類似</button>
@@ -171,9 +172,9 @@ export default function Search() {
   ];
   const secCols: Col<any>[] = [
     { key: "section_id", label: "区間", render: (r) => <span className="mono">{r.section_id.slice(0, 40)}</span> }, { key: "direction", label: "方向" },
-    { key: "dist_standard_m", label: "距離", num: true }, { key: "grade_mean", label: "平均勾配", num: true },
+    { key: "dist_standard_m", label: "距離", num: true, unit: "m" }, { key: "grade_mean", label: "平均勾配", num: true },
     { key: "grade_up_max_w100", label: "最大上り", num: true }, { key: "grade_down_max_w100", label: "最大下り", num: true },
-    { key: "elev_gain_m", label: "累積上昇", num: true }, { key: "gain_per_km", label: "上昇/km", num: true }, { key: "min_radius_m", label: "最小R", num: true },
+    { key: "elev_gain_m", label: "累積上昇", num: true, unit: "m" }, { key: "gain_per_km", label: "上昇/km", num: true, unit: "m/km" }, { key: "min_radius_m", label: "最小R", num: true, unit: "m" },
     { key: "quality_level", label: "品質", render: (r) => <QualityBadge q={r.quality_level} /> },
   ];
   const cols = mode === "ramp" ? rampCols : mode === "facility" ? facCols : secCols;
@@ -196,6 +197,8 @@ export default function Search() {
           ))}
         </div>
         <div className="form">
+          <label>国<select value={form.country} onChange={(e) => setF({ country: e.target.value })} data-testid="f-country"><option value="">すべて（日米横断）</option>
+            <option value="JP">日本</option><option value="US">米国</option><option value="CA">カナダ</option></select></label>
           <label>地域・路線<select value={form.route} onChange={(e) => setF({ route: e.target.value })}><option value="">すべて</option>
             {(routes.data?.routes ?? []).map((r: string) => <option key={r}>{r}</option>)}</select></label>
           {mode === "ramp" && <>

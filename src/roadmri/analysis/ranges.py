@@ -12,6 +12,7 @@ from shapely.ops import unary_union
 from roadmri.geometry.projection import geodesic_buffer
 
 RANGE_TYPES = (
+    "country",
     "route",
     "admin",
     "preset_area",
@@ -84,10 +85,18 @@ def resolve_facilities(spec: dict[str, Any], fac: pd.DataFrame, query_runner: An
     if t == "shape":
         cls = set(spec.get("shape_classes", []))
         return set(fac.loc[fac["shape_class"].isin(cls), "facility_id"])
-    if t == "admin" and "admin_code" in fac.columns and spec.get("admin_codes"):
-        codes = set(spec["admin_codes"])
-        hit = set(fac.loc[fac["admin_code"].isin(codes), "facility_id"])
-        if hit:
+    if t == "country":
+        cs = {str(c).upper() for c in spec.get("countries", [])}
+        col = fac["country"] if "country" in fac.columns else fac["facility_id"].str[:2]
+        return set(fac.loc[col.isin(cs), "facility_id"])
+    if t == "admin" and spec.get("admin_codes"):
+        codes = {str(c) for c in spec["admin_codes"]}
+        hit = (
+            set(fac.loc[fac["admin_code"].isin(codes), "facility_id"])
+            if "admin_code" in fac.columns
+            else set()
+        )
+        if hit or not spec.get("bbox"):
             return hit
     if t == "query":
         if query_runner is None:
@@ -122,4 +131,6 @@ def range_label(spec: dict[str, Any]) -> str:
         return "形状 " + "・".join(spec.get("shape_classes", []))
     if t == "query":
         return "検索結果"
+    if t == "country":
+        return "国 " + "・".join(spec.get("countries", []))
     return str(t)

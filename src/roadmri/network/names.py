@@ -26,7 +26,10 @@ class NameNormalizer:
         self.strip_chars: list[str] = [unicodedata.normalize("NFKC", c) for c in rules.get("strip_chars", [])]
         self.strip_brackets = bool(rules.get("strip_brackets", True))
         sfx = [
-            (unicodedata.normalize("NFKC", str(s["pattern"])).replace(".", ""), str(s["code"]))
+            (
+                unicodedata.normalize("NFKC", str(s["pattern"])).replace(".", "").replace(" ", ""),
+                str(s["code"]),
+            )
             for s in rules.get("suffixes", [])
         ]
         self.suffixes = sorted(sfx, key=lambda t: -len(t[0]))

@@ -1,6 +1,6 @@
 # ROAD MRI — 高速道路ネットワーク解析・可視化システム
 
-OpenStreetMap と公的 DEM（国土地理院 標高タイル等）から、高速道路の IC・JCT・ランプ・区間を抽出して DuckDB に蓄積し、
+OpenStreetMap と公的 DEM（日本：国土地理院 標高タイル、米国：USGS 3DEP）から、高速道路の IC・JCT・ランプ・区間を抽出して DuckDB に蓄積し、
 距離・曲率・標高・勾配・形状分類を解析する。背景地図なしの「道路 MRI」表示、条件検索、類似地点検索、2 地点比較、
 範囲統計比較、データ・画像・レポート出力を、ローカル PC だけ（取得後はオフライン、API キー・登録不要）で行う。
 
@@ -42,6 +42,32 @@ uv run roadmri build --range tochigi_small --offline
 
 合成ネットワーク（典型的な IC/JCT 形状）は `--range synthetic`。
 
+## 米国
+
+米国の州は `config/regions/michigan.yaml`・`colorado.yaml` のように、Geofabrik の州別 PBF と USGS 3DEP 標高
+（The National Map、登録・キー不要、NAVD88）で処理する。方向は北行き・南行き・東行き・西行き、名称のない出口は
+「路線＋出口番号」（例：I-94 Exit 177（State Street））で施設名を付ける。画面右上のボタンで m・km/h と ft・mph を切り替えられる。
+
+```bash
+uv run roadmri fetch --range michigan
+```
+
+```bash
+uv run roadmri build --range michigan
+```
+
+日本と米国を 1 つの DB に入れて横断検索・統計比較（「日本 vs 米国」）するときは、地域をカンマ区切りで並べる：
+
+```bash
+uv run roadmri build --range tochigi,michigan
+```
+
+同梱の米国 fixture（Ann Arbor, MI の I-94 / US-23 周辺）でネットワークなしに試せる：
+
+```bash
+uv run roadmri build --range tochigi_small,us_annarbor_small --offline
+```
+
 ## 主なコマンド
 
 | コマンド | 内容 |
@@ -79,7 +105,8 @@ cd web && npm run lint && npm test && npx playwright test
 
 - 地図データ：© OpenStreetMap contributors（ODbL 1.0）。**本システムが作るデータベースは OSM の派生データベースです。
   社外に公開・配布する場合は ODbL の継承義務（同じライセンスでの提供）が生じます。社内利用の範囲では問題ありません。**
-- 標高：出典：国土地理院（標高タイル）。Copernicus DEM を使った場合は所定のクレジット（config/dem_sources.yaml）。
+- 標高：出典：国土地理院（標高タイル）。米国は USGS 3D Elevation Program（パブリックドメイン、出典表示を推奨）。
+  Copernicus DEM を使った場合は所定のクレジット（config/dem_sources.yaml）。
 - 出典表示文は `/api/meta` から取得し、地図右下・画像・レポート・出力ファイルの来歴（provenance.json）に入る。
 - 同梱フォント：Noto Sans JP（SIL OFL 1.1、`src/roadmri/export/fonts/OFL.txt`）。Web UI のフォントは npm（@fontsource）からバンドル。
 
@@ -87,4 +114,5 @@ cd web && npm run lint && npm test && npx playwright test
 
 - UI モックアップ（docs/mockup/road_mri_mockup.html）は未提供のため、SPEC §11 の文章仕様とデザイントークンで実装した。
 - 栃木県全域での実データ検証（NEXCO 照合、分類精度）は未実施（docs/validation/tochigi.md）。
-- P4（全国・差分更新・PMTiles）、P5（北米）、P6（実走データ）は設計・インターフェースのみ。
+- 米国は対応済み（ADR-0013）。カナダは地域設定と DEM（NRCan）アダプタが未整備。米国の州全域での検証は未実施（docs/validation/us.md）。
+- P4（全国・差分更新・PMTiles）、P6（実走データ）は設計・インターフェースのみ。

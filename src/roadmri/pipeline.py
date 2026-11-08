@@ -42,6 +42,7 @@ from roadmri.network.junctions import (
     determine_types,
     link_components,
     make_facilities,
+    merge_by_shared_components,
 )
 from roadmri.network.mainline import Chain, assign_directions, build_chains, chain_endpoints_gaps
 from roadmri.network.names import NameNormalizer
@@ -52,6 +53,7 @@ from roadmri.quality.flags import make_flag
 from roadmri.quality.levels import dem_quality, level_from_flags, osm_quality_ramp
 from roadmri.store.duckdb_store import Store
 from roadmri.store.manual_edits import apply_edits, effective_edits
+from roadmri.units import parse_speed_kmh
 
 log = get_logger("pipeline")
 
@@ -150,10 +152,10 @@ def make_dem_sampler(ctx: Ctx, offline: bool | None = None) -> tuple[DemSampler,
     caches = [
         Path(p) if Path(p).is_absolute() else cfg.root / p for p in ctx.region.get("dem_cache_dirs", [])
     ]
-    caches.append(cfg.path("raw_dir") / "dem" / "gsi")
+    caches.append(cfg.path("raw_dir") / "dem" / "tiles")
     off = bool(dem_cfg.get("offline", False)) if offline is None else offline
     http = None if off else HttpClient(cfg.settings)
-    dctx = {"gsi_cache_dirs": caches, "http": http, "offline": off, "cache_dir": cfg.path("raw_dir") / "dem"}
+    dctx = {"tile_cache_dirs": caches, "http": http, "offline": off, "cache_dir": cfg.path("raw_dir") / "dem"}
     providers = build_providers(dem_cfg, str(ctx.region.get("dem", "jp")), dctx)
     return DemSampler(providers), providers
 
@@ -212,10 +214,9 @@ def step_network(ctx: Ctx) -> None:
     assert ctx.osm is not None
     proj = None
     if ctx.range_geom is not None:
-        c = ctx.range_geom.centroid
-        proj = Projector.for_lonlat(c.x, c.y)
+        proj = Projector.for_bounds(*ctx.range_geom.bounds)
     ctx.rg = RoadGraph.build(ctx.osm, ctx.cfg.routes, proj)
-    assign_directions(ctx.rg, ctx.cfg.routes)
+    assign_directions(ctx.rg, ctx.cfg.routes, ctx.country)
     ctx.chains = build_chains(ctx.rg)
     ctx.gaps = chain_endpoints_gaps(ctx.rg, ctx.chains, float(ctx.cfg.analysis["quality"]["mainline_gap_m"]))
 
@@ -230,8 +231,12 @@ def step_facilities(ctx: Ctx) -> None:
     a = ctx.cfg.analysis["facility"]
     nn = _normalizer(ctx.cfg)
     cands = build_candidates(ctx.rg, ctx.osm, nn)
-    groups = merge_candidates(cands, a["merge_max_distance_m"], float(a["merge_exit_ref_distance_m"]))
+    raw_d: Any = a["merge_exit_ref_distance_m"]
+    picked: Any = raw_d.get(ctx.country, raw_d.get("default", 1000)) if isinstance(raw_d, dict) else raw_d
+    exit_d = float(picked)
+    groups = merge_candidates(cands, a["merge_max_distance_m"], exit_d)
     comps = link_components(ctx.rg, ctx.osm)
+    groups = merge_by_shared_components(groups, comps)
     asg = assign_components(ctx.rg, groups, comps, ctx.osm, float(a["ramp_search_radius_m"]), nn)
     codes = ctx.range_spec.get("admin_codes") or []
     ctx.facs = make_facilities(
@@ -501,8 +506,9 @@ def build_tables(ctx: Ctx) -> None:
             for n in c.mainline_nodes:
                 for e in rg.incident(n):
                     if e.data["cls"] == "mainline":
-                        with contextlib.suppress(TypeError, ValueError):
-                            speeds.append(int(str(e.data["tags"].get("maxspeed")).split()[0]))
+                        sp = parse_speed_kmh(e.data["tags"].get("maxspeed"))
+                        if sp is not None:
+                            speeds.append(sp)
         review = "needs_review" if cr.confidence < low_thr and cr.shape_class != "SA/PA" else "unreviewed"
         fac_rows.append(
             {
@@ -902,7 +908,7 @@ def display_features(ctx: Ctx) -> pd.DataFrame:
                 "route_ref": ch.route_ref,
                 "direction": ch.direction,
                 "structure": e.data["structure"] if e else "none",
-                "maxspeed": _intval(e.data["tags"].get("maxspeed")) if e else None,
+                "maxspeed": parse_speed_kmh(e.data["tags"].get("maxspeed")) if e else None,
                 "lanes": _intval(e.data["tags"].get("lanes")) if e else None,
                 "name": e.data.get("name") if e else None,
             }
@@ -1003,9 +1009,12 @@ def _intval(v: Any) -> int | None:
         return None
 
 
-def step_publish(ctx: Ctx, store: Store | None, started: float) -> dict[str, Any]:
+def step_publish(
+    ctx: Ctx, store: Store | None, started: float, disp: pd.DataFrame | None = None
+) -> dict[str, Any]:
     cfg = ctx.cfg
-    disp = display_features(ctx)
+    if disp is None:
+        disp = display_features(ctx)
     ctx.tables["display_feature"] = disp
     ctx.tables["quality_flag"] = pd.DataFrame(ctx.flags)
     ctx.tables["dataset_source"] = pd.DataFrame(ctx.sources)
@@ -1095,6 +1104,11 @@ def load_state(cfg: Config, region_id: str, step: str) -> Ctx:
     return ctx
 
 
+def split_regions(region_id: str) -> list[str]:
+    """ "tochigi,michigan" / "tochigi+michigan" → 地域 ID のリスト（複数地域を 1 つの DB に公開する）。"""
+    return [r.strip() for r in region_id.replace("+", ",").split(",") if r.strip()]
+
+
 def run_pipeline(
     cfg: Config,
     region_id: str,
@@ -1104,6 +1118,10 @@ def run_pipeline(
     source: str | None = None,
     progress: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
+    regions = split_regions(region_id)
+    if len(regions) > 1:
+        return run_multi(cfg, regions, store, from_step, to_step, source, progress)
+    region_id = regions[0]
     started = time.time()
     fs = STEP_ALIASES.get(from_step or "ingest", from_step or "ingest")
     ts = STEP_ALIASES.get(to_step or "publish", to_step or "publish")
@@ -1160,3 +1178,101 @@ def counts(ctx: Ctx) -> dict[str, int]:
         "sections": len(ctx.sections),
         "flags": len(ctx.flags),
     }
+
+
+def run_multi(
+    cfg: Config,
+    regions: list[str],
+    store: Store | None,
+    from_step: str | None = None,
+    to_step: str | None = None,
+    source: str | None = None,
+    progress: Callable[[float, str], None] | None = None,
+) -> dict[str, Any]:
+    """複数地域（例：日本の関東と米国のミシガン州）を地域ごとに quality 段まで処理し、手動修正の適用と公開は
+    まとめて行う。施設 ID は国コードで始まるので衝突しない。日本・北米を横断した検索・統計比較に使う。"""
+    started = time.time()
+    ts = STEP_ALIASES.get(to_step or "publish", to_step or "publish")
+    last = "quality" if STEPS.index(ts) >= STEPS.index("quality") else ts
+    ctxs: list[Ctx] = []
+    for k, rid in enumerate(regions):
+        sub_progress = (
+            (lambda p, m, k=k, rid=rid: progress((k + p) / (len(regions) + 1), f"{rid}: {m}"))
+            if progress
+            else None
+        )
+        run_pipeline(cfg, rid, store, from_step, last, source, sub_progress)
+        ctxs.append(load_state(cfg, rid, last))
+    if STEPS.index(ts) < STEPS.index("edits"):
+        return {"run_id": None, "regions": regions, "counts": _sum_counts(ctxs), "stopped_at": ts}
+    joined = "+".join(regions)
+    run_id = make_run_id(cfg.config_hash, "".join(c.run_id for c in ctxs), {"regions": regions})
+    edits = effective_edits(store) if store is not None else []
+    edit_ids = sorted(e["edit_id"] for e in edits)
+    # 手動修正：どの地域でも解決できなかったものだけを孤立とする
+    status: dict[str, dict[str, Any]] = {}
+    for c in ctxs:
+        c.edit_ids = edit_ids
+        ramp_ways = {r.ramp_id: {int(e.data["way_id"]) for e in r.edges} for r in c.ramps}
+        for res in apply_edits(edits, c.tables, ramp_ways, run_id):
+            if res["status"] == "active" or res["edit_id"] not in status:
+                status[res["edit_id"]] = res
+        fac = c.tables["facility"]
+        if len(fac) and len(c.tables["ramp"]):
+            shape = dict(zip(fac["facility_id"], fac["shape_class"], strict=True))
+            c.tables["ramp"]["shape_class"] = c.tables["ramp"]["facility_id"].map(shape)
+    combo = Ctx(
+        cfg=cfg,
+        region_id=joined,
+        region={"id": joined},
+        country="MULTI",
+        range_spec={"type": "union", "members": [c.range_spec for c in ctxs], "label": " + ".join(regions)},
+    )
+    combo.run_id = run_id
+    combo.edit_ids = edit_ids
+    combo.resolutions = list(status.values())
+    combo.flags = [f for c in ctxs for f in c.flags]
+    for res in combo.resolutions:
+        if res["status"] == "orphaned":
+            combo.flags.append(
+                make_flag(
+                    "edit",
+                    res["edit_id"],
+                    "ORPHANED_EDIT",
+                    run_id,
+                    {},
+                    "対象が見つからない手動修正（孤立修正）です。確認キューで再割当てしてください",
+                    "warn",
+                )
+            )
+    for f in combo.flags:
+        f["run_id"] = run_id
+    names = set().union(*[set(c.tables) for c in ctxs])
+    for name in names:
+        dfs = [c.tables[name] for c in ctxs if name in c.tables and len(c.tables[name])]
+        df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+        if "run_id" in df.columns:
+            df["run_id"] = run_id
+        combo.tables[name] = df
+    combo.sources = [s for c in ctxs for s in c.sources]
+    dems: dict[str, dict[str, Any]] = {}
+    for c in ctxs:
+        for d in c.dem_meta:
+            dems.setdefault(d["dem_id"], d)
+    combo.dem_meta = list(dems.values())
+    combo.facs = [f for c in ctxs for f in c.facs]
+    combo.ramps = [r for c in ctxs for r in c.ramps]
+    combo.sections = [s for c in ctxs for s in c.sections]
+    disp = pd.concat([display_features(c) for c in ctxs], ignore_index=True)
+    if progress:
+        progress(len(regions) / (len(regions) + 1), "publish 実行中")
+    row = step_publish(combo, store, started, disp)
+    return {"run_id": run_id, "regions": regions, "counts": counts(combo), "duration_s": row["duration_s"]}
+
+
+def _sum_counts(ctxs: list[Ctx]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for c in ctxs:
+        for k, v in counts(c).items():
+            out[k] = out.get(k, 0) + v
+    return out

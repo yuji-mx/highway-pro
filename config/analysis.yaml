@@ -44,7 +44,7 @@ grade:
   end_len_m: 100
 facility:
   merge_max_distance_m: {IC: 2000, JCT: 3000, default: 2000}
-  merge_exit_ref_distance_m: 1000
+  merge_exit_ref_distance_m: {default: 1000, US: 1500, CA: 1500}   # 出口番号（基本番号）一致で統合する距離
   ramp_search_radius_m: 2500
   general_road_radius_m: 2000
 classification:

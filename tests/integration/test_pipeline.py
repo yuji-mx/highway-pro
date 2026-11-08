@@ -220,3 +220,76 @@ def test_resume_from_step(tmp_path, cfg):
     assert st.has_data() and res["counts"]["facilities"] == 8
     with pytest.raises(ValueError):
         run_pipeline(c, "synthetic", st, from_step="nonexistent")
+
+
+def test_us_fixture_golden(tmp_path, cfg):
+    """米国（Ann Arbor, MI の I-94 / US-23）：ゴールデン照合、方位、出口番号の施設名、mph、3DEP（NAVD88）。"""
+    from tests.conftest import _cfg_for
+
+    c = _cfg_for(tmp_path, cfg)
+    st = Store(c.path("processed_db"))
+    run_pipeline(c, "us_annarbor_small", st)
+    _golden_check(st, "us_annarbor_small")
+    fac = st.df("SELECT * EXCLUDE (geom, hull) FROM facility")
+    assert set(fac["country"]) == {"US"} and all(f.startswith("US-F-") for f in fac["facility_id"])
+    assert set(fac["admin_code"]) == {"26"}
+    jct = fac[fac["facility_type"] == "JCT"].iloc[0]
+    assert jct["shape_class"] == "クローバーリーフ型" and set(jct["route_refs"]) == {"I 94", "US 23"}
+    assert set(fac[fac["normalized_name"] == "I 94 Exit 177"]["shape_class"]) == {"部分クローバー型"}
+    assert {"east", "west"} <= set(st.df("SELECT DISTINCT direction FROM section")["direction"])
+    ramps = st.df("SELECT branch_side, maxspeed_kmh FROM ramp")
+    assert (ramps["branch_side"].dropna() == "right").all()  # 右側通行
+    assert 113 in set(ramps["maxspeed_kmh"].dropna())  # 70 mph
+    assert set(st.df("SELECT vertical_datum FROM dem_dataset")["vertical_datum"]) == {"NAVD88"}
+    # 出口番号はマイルポスト：Exit 177 → 180 は約 3 マイル（±3 %）
+    d = st.scalar(
+        "SELECT avg(s.dist_standard_m) FROM section s JOIN facility a ON s.from_facility_id=a.facility_id "
+        "JOIN facility b ON s.to_facility_id=b.facility_id WHERE a.normalized_name='I 94 Exit 177' "
+        "AND b.normalized_name LIKE 'I 94 Exit 180%'"
+    )
+    assert abs(d - 3 * 1609.344) / (3 * 1609.344) < 0.03
+
+
+def test_multi_region_jp_us(tmp_path, cfg):
+    """日米横断：2 地域を 1 つの DB に公開し、国をまたいで検索・統計比較できる。手動修正は両地域で保持。"""
+    from roadmri.analysis.compare import compare_ranges
+    from roadmri.analysis.search import run_query
+    from tests.conftest import _cfg_for
+
+    c = _cfg_for(tmp_path, cfg)
+    st = Store(c.path("processed_db"))
+    res = run_pipeline(c, "tochigi_small,us_annarbor_small", st)
+    assert res["counts"]["facilities"] == 7
+    assert dict(st.df("SELECT country, count(*) n FROM facility GROUP BY 1").values.tolist()) == {
+        "JP": 3,
+        "US": 4,
+    }
+    assert st.current_run()["region_id"] == "tochigi_small+us_annarbor_small"
+    assert set(st.df("SELECT DISTINCT run_id FROM ramp")["run_id"]) == {res["run_id"]}
+    us = run_query(
+        st,
+        {
+            "target": "ramp",
+            "where": {"all": [{"field": "country", "op": "eq", "value": "US"}]},
+            "limit": 10000,
+        },
+    )
+    assert len(us) == 40 and all(r.startswith("US-F-") for r in us["ramp_id"])
+    r = compare_ranges(
+        st,
+        c,
+        {
+            "range_a": {"type": "country", "countries": ["JP"]},
+            "range_b": {"type": "country", "countries": ["US"]},
+            "bootstrap": 200,
+        },
+    )
+    assert r["a"]["counts"]["facility"] == 3 and r["b"]["counts"]["facility"] == 4
+    assert r["b"]["counts"]["section"] == 3  # 米国は路線ごとに片方向（west）だけ数える
+    jp = st.scalar("SELECT facility_id FROM facility WHERE normalized_name='鹿沼|IC'")
+    usf = st.scalar("SELECT facility_id FROM facility WHERE normalized_name='I 94 Exit 177'")
+    add_edit(st, "facility", jp, "review_status", "reviewed", "t")
+    add_edit(st, "facility", usf, "review_status", "reviewed", "t")
+    run_pipeline(c, "tochigi_small,us_annarbor_small", st)
+    assert set(st.df("SELECT status FROM manual_edit_resolution")["status"]) == {"active"}
+    assert st.scalar("SELECT count(*) FROM facility WHERE review_status='reviewed'") == 2

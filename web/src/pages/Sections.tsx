@@ -46,9 +46,9 @@ function SectionTab() {
   const cols: Col<any>[] = [
     { key: "direction", label: "方向", get: (r) => t(`dir.${r.direction}`, r.direction) },
     { key: "from_name", label: "起点" }, { key: "to_name", label: "終点" },
-    { key: "dist_standard_m", label: "距離 [km]", num: true, get: (r) => (r.dist_standard_m ?? 0) / 1000 },
+    { key: "dist_standard_m", label: "距離", unit: "km", num: true, get: (r) => (r.dist_standard_m ?? 0) / 1000 },
     { key: "grade_up_max_w100", label: "最大上り(100m)", num: true }, { key: "grade_down_max_w100", label: "最大下り(100m)", num: true },
-    { key: "elev_gain_m", label: "累積上昇", num: true }, { key: "min_radius_m", label: "最小R", num: true },
+    { key: "elev_gain_m", label: "累積上昇", num: true, unit: "m" }, { key: "min_radius_m", label: "最小R", num: true, unit: "m" },
     { key: "anomaly_flags", label: "異常", get: (r) => (r.anomaly_flags ?? []).join(", ") },
     { key: "quality_level", label: "品質", render: (r) => <QualityBadge q={r.quality_level} /> },
   ];

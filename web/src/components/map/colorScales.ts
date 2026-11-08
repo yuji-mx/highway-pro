@@ -1,3 +1,4 @@
+import { convert } from "../../state/units";
 /** 色分けのカラースケール（§11.4。stop 値はモックアップと同じ）。 */
 export type RGB = [number, number, number];
 
@@ -89,15 +90,24 @@ export function legendFor(metric: string, zr: [number, number] = [30, 550], shap
     case "grade":
       return [-8, -4, 0, 3, 5.5, 8].map((v) => ({ label: `${v > 0 ? "+" : ""}${v}%`, color: gradeColor(v) }));
     case "radius":
-      return [30, 150, 600, 3000].map((r) => ({ label: `R${r >= 1000 ? `${r / 1000}km` : r}`, color: radiusColor(r) }));
+      return [30, 150, 600, 3000].map((r) => {
+        const [v, u] = convert(r, " m");
+        return { label: `R${Math.round(v)}${u}`, color: radiusColor(r) };
+      });
     case "elevation":
-      return [0, 0.35, 0.7, 1].map((t) => ({ label: `${Math.round(zr[0] + t * (zr[1] - zr[0]))} m`, color: rgb(interp(ELEV_STOPS, t)) }));
+      return [0, 0.35, 0.7, 1].map((t) => {
+        const [v, u] = convert(zr[0] + t * (zr[1] - zr[0]), " m");
+        return { label: `${Math.round(v)}${u}`, color: rgb(interp(ELEV_STOPS, t)) };
+      });
     case "quality":
       return [["高", "high"], ["中", "medium"], ["低", "low"]].map(([l, k]) => ({ label: l, color: QUALITY_COLORS[k] }));
     case "flow":
       return Object.entries(FLOW_COLORS).map(([k, c]) => ({ label: k, color: c }));
     case "maxspeed":
-      return Object.entries(SPEED_COLORS).map(([k, c]) => ({ label: `${k} km/h`, color: c }));
+      return Object.entries(SPEED_COLORS).map(([k, c]) => {
+        const [v, u] = convert(Number(k), " km/h");
+        return { label: `${Math.round(v)}${u}`, color: c };
+      });
     case "lanes":
       return Object.entries(LANE_COLORS).map(([k, c]) => ({ label: `${k} 車線`, color: c }));
     case "shape":

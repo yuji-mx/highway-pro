@@ -2,20 +2,26 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { t } from "../../i18n";
 import { useToast } from "../../state/stores";
+import { convert } from "../../state/units";
 
+/** 数値の整形。単位（m、km、km/h、m/km）は表示単位の設定に従って換算する。 */
 export const fmt = (v: unknown, d = 0, unit = ""): string => {
   if (v == null || (typeof v === "number" && !Number.isFinite(v))) return "—";
-  if (typeof v === "number") return `${v.toLocaleString("ja-JP", { minimumFractionDigits: d, maximumFractionDigits: d })}${unit}`;
+  if (typeof v === "number") {
+    const [x, u] = unit ? convert(v, unit) : [v, unit];
+    return `${x.toLocaleString("ja-JP", { minimumFractionDigits: d, maximumFractionDigits: d })}${u}`;
+  }
   return String(v);
 };
 
 export function Kpi({ label, value, unit, d = 0 }: { label: string; value: unknown; unit?: string; d?: number }) {
+  const [v, u] = typeof value === "number" && unit ? convert(value, unit) : [value, unit ?? ""];
   return (
     <div className="kpi">
       <div className="l">{label}</div>
       <div className="v">
-        {fmt(value, d)}
-        {unit && value != null ? <small>{unit}</small> : null}
+        {fmt(v, d)}
+        {u && value != null ? <small>{u}</small> : null}
       </div>
     </div>
   );

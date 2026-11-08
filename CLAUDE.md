@@ -32,5 +32,7 @@ uv run ruff check src tests scripts && uv run mypy
 - パイプライン：`src/roadmri/pipeline.py`（段＝ingest → network → facilities → ramps → sections → metrics → classify → quality → edits → publish）。
   段ごとに `data/interim/<region>/<step>.pkl` を保存し `--from-step` で再開できる。
 - テスト fixture：`tests/fixtures/tochigi_small.osm.pbf`（宇都宮IC〜鹿沼IC、OSM API から取得して道路だけ抽出）、
-  `tests/fixtures/dem/gsi/`（地理院 DEM5A/DEM10B タイル）、`tests/fixtures/synthetic/`（典型形状の合成ネットワーク）。
+  `tests/fixtures/dem/gsi/`（地理院 DEM5A/DEM10B タイル）、`tests/fixtures/synthetic/`（典型形状の合成ネットワーク）、
+  `tests/fixtures/us/annarbor_small.osm.pbf` と `tests/fixtures/dem/usgs/`（米国：Ann Arbor, MI の I-94 / US-23、USGS 3DEP タイル）。
+- 米国対応は ADR-0013（方位による方向、出口番号の施設名、3DEP、国別分類ルール、複数地域の build、表示単位）。
   ゴールデンは `scripts/make_golden.py` で再生成する（意図した変更のときだけ）。

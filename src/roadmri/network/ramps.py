@@ -12,6 +12,7 @@ import numpy as np
 from roadmri.geometry.projection import bearing_deg
 from roadmri.network.graph import EdgeRef, RoadGraph
 from roadmri.network.junctions import Facility, LinkComponent
+from roadmri.units import parse_speed_kmh
 
 
 @dataclass
@@ -256,9 +257,9 @@ def extract_ramps(rg: RoadGraph, facs: list[Facility], loop_turn_deg: float) -> 
                 elif t1["kind"] == "mainline":
                     side = _side(rg, nodes[-1], xy, False)
                 lanes = Counter(_parse_int(e.data["tags"].get("lanes")) for e in ch).most_common(1)[0][0]
-                maxspeed = Counter(_parse_int(e.data["tags"].get("maxspeed")) for e in ch).most_common(1)[0][
-                    0
-                ]
+                maxspeed = Counter(parse_speed_kmh(e.data["tags"].get("maxspeed")) for e in ch).most_common(
+                    1
+                )[0][0]
                 turn = _turn_deg(xy)
                 fac_ramps.append(
                     Ramp(

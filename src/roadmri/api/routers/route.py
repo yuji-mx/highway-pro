@@ -19,7 +19,7 @@ def _route(s: AppState, body: RouteRequest) -> dict[str, Any]:
     from roadmri.network.routing import best_pair, find_routes, routing_graph, snap_candidates, summarize
     from roadmri.pipeline import make_dem_sampler
 
-    ctx = s.network()
+    ctx = s.network(body.from_facility_id)
     rg = ctx.rg
     jct_keys = {e.key for r in ctx.ramps if r.flow == "jct_link" for e in r.edges}
     dg = routing_graph(rg, jct_keys)

@@ -4,8 +4,9 @@
      uv run python scripts/make_fixture.py osm <dir_of_osm_xml> tests/fixtures/tochigi_small.osm.pbf
 2. 合成ネットワーク（tests/fixtures/synthetic/synthetic.osm.pbf）を生成する。
      uv run python scripts/make_fixture.py synthetic
-3. fixture 範囲の地理院 DEM タイルを取得して tests/fixtures/dem/gsi/ に保存する（ネットワーク必要）。
-     uv run python scripts/make_fixture.py dem tests/fixtures/tochigi_small.osm.pbf
+3. fixture 範囲の DEM タイルを取得して保存する（ネットワーク必要）。
+     uv run python scripts/make_fixture.py dem tests/fixtures/tochigi_small.osm.pbf tests/fixtures/dem/gsi jp_fixture
+     uv run python scripts/make_fixture.py dem tests/fixtures/us/annarbor_small.osm.pbf tests/fixtures/dem/usgs us_fixture
 """
 
 from __future__ import annotations
@@ -90,11 +91,12 @@ def osm_to_pbf(src_dir: Path, dest: Path) -> None:
     print(f"wrote {dest}: nodes={len(keep_nodes)} ways={len(c.ways)} rels={len(c.rels)}")
 
 
-def fetch_dem(pbf: Path, out_dir: Path) -> None:
+def fetch_dem(pbf: Path, out_dir: Path, profile: str = "jp_fixture") -> None:
+    """fixture の本線・ランプ周辺の DEM タイル（地理院・USGS 3DEP）を out_dir に保存する。"""
     import numpy as np
 
     from roadmri.config import load_config
-    from roadmri.ingest.dem import GsiTileProvider
+    from roadmri.ingest.dem import GsiTileProvider, build_providers
     from roadmri.ingest.http import HttpClient
     from roadmri.ingest.osm_pbf import read_osm
 
@@ -103,13 +105,14 @@ def fetch_dem(pbf: Path, out_dir: Path) -> None:
     lons = np.concatenate([np.asarray(x) for x in osm.ways["lons"]])
     lats = np.concatenate([np.asarray(x) for x in osm.ways["lats"]])
     http = HttpClient(cfg.settings)
-    for dem_id in ("gsi_dem5a", "gsi_dem10b"):
-        spec = cfg.dem_sources["sources"][dem_id]
-        p = GsiTileProvider(dem_id, spec, {"gsi_cache_dirs": [out_dir], "http": http})
+    dem_cfg = {**cfg.dem_sources, "local_sources": []}
+    for p in build_providers(dem_cfg, profile, {"tile_cache_dirs": [out_dir], "http": http}):
+        if not isinstance(p, GsiTileProvider):
+            continue
         tiles = p.tiles_for(lons, lats)
         for t in sorted(tiles):
             p.load_tile(*t)
-        print(dem_id, "tiles", len(tiles), "fetched", p.tiles_fetched)
+        print(p.meta.dem_id, "tiles", len(tiles), "fetched", p.tiles_fetched)
 
 
 if __name__ == "__main__":
@@ -122,7 +125,9 @@ if __name__ == "__main__":
         write_synthetic_fixture(Path("tests/fixtures/synthetic"))
     elif cmd == "dem":
         fetch_dem(
-            Path(sys.argv[2]), Path(sys.argv[3]) if len(sys.argv) > 3 else Path("tests/fixtures/dem/gsi")
+            Path(sys.argv[2]),
+            Path(sys.argv[3]) if len(sys.argv) > 3 else Path("tests/fixtures/dem/gsi"),
+            sys.argv[4] if len(sys.argv) > 4 else "jp_fixture",
         )
     else:
         raise SystemExit(__doc__)

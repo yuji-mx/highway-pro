@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import type { SamplePoint } from "../../api/types";
 import { useCursor } from "../../state/stores";
 import { gradeColor } from "../map/colorScales";
+import { convert, unitLabel } from "../../state/units";
+import { fmt } from "../common/ui";
 import EChart, { AXIS, TOOLTIP } from "./EChart";
 
 export interface Marker {
@@ -71,10 +73,10 @@ export default function ProfileChart({
       tooltip: { ...TOOLTIP, trigger: "axis", formatter: (ps: any) => {
         const x = Array.isArray(ps) ? ps[0]?.axisValue : ps.axisValue;
         const p = nearest(points, Number(x));
-        return p ? `${p.s_m.toFixed(0)} m<br>標高 ${p.z_corrected?.toFixed(1) ?? "—"} m（生 ${p.z_dem_raw?.toFixed(1) ?? "—"}）<br>勾配 ${p.grade_w100?.toFixed(2) ?? "—"} %<br>${p.structure !== "none" ? p.structure : ""}` : "";
+        return p ? `${fmt(p.s_m, 0, " m")}<br>標高 ${fmt(p.z_corrected, 1, " m")}（生 ${fmt(p.z_dem_raw, 1, " m")}）<br>勾配 ${p.grade_w100?.toFixed(2) ?? "—"} %<br>${p.structure !== "none" ? p.structure : ""}` : "";
       } },
-      xAxis: { type: "value", name: "距離 [m]", min: 0, max: points.length ? Math.ceil(points[points.length - 1].s_m) : 1, ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v: number) => String(Math.round(v)) } },
-      yAxis: [{ type: "value", name: "標高 [m]", min: lo, max: hi, ...AXIS }, ...(w ? [{ type: "value", name: "%", ...AXIS, splitLine: { show: false } }] : [])],
+      xAxis: { type: "value", name: `距離 [${unitLabel("m")}]`, min: 0, max: points.length ? Math.ceil(points[points.length - 1].s_m) : 1, ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v: number) => String(Math.round(convert(v, "m")[0])) } },
+      yAxis: [{ type: "value", name: `標高 [${unitLabel("m")}]`, min: lo, max: hi, ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v: number) => String(Math.round(convert(v, "m")[0])) } }, ...(w ? [{ type: "value", name: "%", ...AXIS, splitLine: { show: false } }] : [])],
       series: [
         ...series,
         { name: "接続", type: "line", data: [], markLine: { symbol: "none", silent: true, label: { color: "#aebccb", fontSize: 9, formatter: "{b}" },

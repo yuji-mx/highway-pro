@@ -2,11 +2,14 @@ import {
   flexRender, getCoreRowModel, getSortedRowModel, useReactTable, type ColumnDef, type SortingState,
 } from "@tanstack/react-table";
 import { useState, type ReactNode } from "react";
+import { convert, unitLabel } from "../../state/units";
 
 export interface Col<T> {
   key: string;
   label: string;
   num?: boolean;
+  /** SI の単位（m、km、km/h 等）。表示単位の設定に従って値と見出しを換算する。 */
+  unit?: string;
   get?: (r: T) => unknown;
   render?: (r: T) => ReactNode;
   sortable?: boolean;
@@ -27,11 +30,11 @@ export default function DataTable<T extends Record<string, any>>({
   const [sorting, setSorting] = useState<SortingState>([]);
   const columns: ColumnDef<T>[] = cols.map((c) => ({
     id: c.key,
-    header: c.label,
+    header: c.unit ? `${c.label} [${unitLabel(c.unit)}]` : c.label,
     accessorFn: (r: T) => (c.get ? c.get(r) : r[c.key]),
     enableSorting: c.sortable !== false,
     sortUndefined: "last",
-    cell: (info) => (c.render ? c.render(info.row.original) : fmtCell(info.getValue())),
+    cell: (info) => (c.render ? c.render(info.row.original) : fmtCell(c.unit && typeof info.getValue() === "number" ? convert(info.getValue() as number, c.unit)[0] : info.getValue())),
     meta: { num: c.num },
   }));
   const table = useReactTable({

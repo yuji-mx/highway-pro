@@ -7,6 +7,8 @@ from typing import Any
 
 import numpy as np
 
+from roadmri.units import exit_base
+
 
 @dataclass
 class Candidate:
@@ -78,7 +80,7 @@ def merge_candidates(
             elif (
                 (not a.norm_key or not b.norm_key)
                 and a.exit_ref
-                and a.exit_ref == b.exit_ref
+                and exit_base(a.exit_ref) == exit_base(b.exit_ref)
                 and a.route_ref
                 and a.route_ref == b.route_ref
                 and d <= exit_ref_distance_m

@@ -54,7 +54,7 @@ def golden(region: str) -> dict:
 
 
 if __name__ == "__main__":
-    regions = sys.argv[1:] or ["tochigi_small", "synthetic"]
+    regions = sys.argv[1:] or ["tochigi_small", "synthetic", "us_annarbor_small"]
     for r in regions:
         p = Path("tests/fixtures/golden") / f"{r}.json"
         p.write_text(json.dumps(golden(r), ensure_ascii=False, indent=2, default=bool), encoding="utf-8")

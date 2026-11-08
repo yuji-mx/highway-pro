@@ -98,7 +98,9 @@ class GsiTileProvider(DemProvider):
         super().__init__(dem_id, spec, ctx)
         self.layer = str(spec["layer"])
         self.zoom = int(spec["zoom"])
-        self.cache_dirs: list[Path] = [Path(p) for p in ctx.get("gsi_cache_dirs", [])]
+        self.cache_dirs: list[Path] = [
+            Path(p) for p in ctx.get("tile_cache_dirs", ctx.get("gsi_cache_dirs", []))
+        ]
         self.http: HttpClient | None = ctx.get("http")
         self.offline = bool(ctx.get("offline", False))
         self._tiles: OrderedDict[tuple[int, int], FloatArray | None] = OrderedDict()
@@ -106,8 +108,17 @@ class GsiTileProvider(DemProvider):
         self.meta.url = f"{self.BASE}/{self.layer}/{{z}}/{{x}}/{{y}}.png"
         self.tiles_fetched = 0
 
+    EXT = ".png"
+
     def _tile_path(self, base: Path, x: int, y: int) -> Path:
-        return base / self.layer / str(self.zoom) / str(x) / f"{y}.png"
+        return base / self.layer / str(self.zoom) / str(x) / f"{y}{self.EXT}"
+
+    def _fetch(self, x: int, y: int) -> bytes:
+        assert self.http is not None
+        return self.http.get_bytes(f"{self.BASE}/{self.layer}/{self.zoom}/{x}/{y}.png")
+
+    def _to_cache(self, data: bytes) -> bytes:
+        return data
 
     def load_tile(self, x: int, y: int) -> FloatArray | None:
         key = (x, y)
@@ -131,10 +142,9 @@ class GsiTileProvider(DemProvider):
                 return None
         if self.offline or self.http is None or not self.cache_dirs:
             return None
-        url = f"{self.BASE}/{self.layer}/{self.zoom}/{x}/{y}.png"
         dest = self._tile_path(self.cache_dirs[-1], x, y)
         try:
-            data = self.http.get_bytes(url)
+            data = self._to_cache(self._fetch(x, y))
         except NotFoundError:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.with_suffix(".missing").write_text("404")
@@ -146,8 +156,7 @@ class GsiTileProvider(DemProvider):
         self.tiles_fetched += 1
         return self._decode(data)
 
-    @staticmethod
-    def _decode(data: bytes) -> FloatArray:
+    def _decode(self, data: bytes) -> FloatArray:
         img = Image.open(io.BytesIO(data)).convert("RGB")
         return decode_rgb(np.asarray(img))
 
@@ -183,6 +192,73 @@ class GsiTileProvider(DemProvider):
         z = _bilinear(get, px, py)
         self.missing += int(np.isnan(z).sum())
         return z
+
+
+class Usgs3depTileProvider(GsiTileProvider):
+    """USGS 3DEP（The National Map の 3DEPElevation ImageServer、登録不要）。
+
+    ImageServer の exportImage で、Web メルカトル XYZ タイル（256 px、EPSG:3857）と同じ格子の float32 GeoTIFF を
+    取得してキャッシュする。サーバー側で利用可能な最良の 3DEP（1 m ライダー、1/3 秒角など）を動的モザイクする。
+    標高基準は NAVD88。格子が地理院タイルと同じなので、双一次補間は共通の処理を使う。
+    """
+
+    adapter = "usgs_3dep_tile"
+    EXT = ".tif"
+
+    def __init__(self, dem_id: str, spec: dict[str, Any], ctx: dict[str, Any]):
+        super().__init__(dem_id, {**spec, "layer": spec.get("layer", "usgs3dep")}, ctx)
+        self.base_url = str(spec["base_url"]).rstrip("/")
+        self.meta.url = f"{self.base_url}/exportImage"
+        self.meta.crs = "EPSG:3857"
+
+    def _fetch(self, x: int, y: int) -> bytes:
+        assert self.http is not None
+        r = 6378137.0
+        n = 2**self.zoom
+        size = 2 * math.pi * r / n
+        x0, x1 = -math.pi * r + x * size, -math.pi * r + (x + 1) * size
+        y1, y0 = math.pi * r - y * size, math.pi * r - (y + 1) * size
+        params = {
+            "bbox": f"{x0},{y0},{x1},{y1}",
+            "bboxSR": "3857",
+            "imageSR": "3857",
+            "size": f"{TILE_SIZE},{TILE_SIZE}",
+            "format": "tiff",
+            "pixelType": "F32",
+            "interpolation": "RSP_BilinearInterpolation",
+            "f": "image",
+        }
+        data = self.http.get_bytes(f"{self.base_url}/exportImage", params=params)
+        if not data.startswith((b"II*\x00", b"MM\x00*")):
+            raise NotFoundError("3DEP の応答が GeoTIFF ではありません（範囲外の可能性）")
+        return data
+
+    def _to_cache(self, data: bytes) -> bytes:
+        """キャッシュは圧縮（deflate、浮動小数点予測）した GeoTIFF で保存する。"""
+        from rasterio.io import MemoryFile
+
+        with MemoryFile(data) as src, src.open() as ds:
+            arr = ds.read(1)
+            prof = ds.profile
+        prof.update(compress="deflate", predictor=3, tiled=False)
+        with MemoryFile() as dst:
+            with dst.open(**prof) as out:
+                out.write(arr, 1)
+            return bytes(dst.read())
+
+    def _decode(self, data: bytes) -> FloatArray:
+        from rasterio.io import MemoryFile
+
+        with MemoryFile(data) as mf, mf.open() as ds:
+            arr = ds.read(1).astype(float)
+            nodata = ds.nodata
+        if nodata is not None:
+            arr[arr == nodata] = np.nan
+        arr[(arr < -1000) | (arr > 10000)] = np.nan  # 無効値（-3.4e38 等）
+        if arr.shape != (TILE_SIZE, TILE_SIZE):
+            raise ValueError(f"3DEP タイルの大きさが不正です: {arr.shape}")
+        out: FloatArray = arr
+        return out
 
 
 class GeoTiffProvider(DemProvider):
@@ -308,7 +384,14 @@ class SyntheticProvider(DemProvider):
 
 ADAPTERS: dict[str, type[DemProvider]] = {
     cls.adapter: cls
-    for cls in (GsiTileProvider, GeoTiffProvider, CopernicusProvider, UsgsProvider, SyntheticProvider)
+    for cls in (
+        GsiTileProvider,
+        Usgs3depTileProvider,
+        GeoTiffProvider,
+        CopernicusProvider,
+        UsgsProvider,
+        SyntheticProvider,
+    )
 }
 
 
