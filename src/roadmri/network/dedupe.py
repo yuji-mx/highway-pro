@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from roadmri.units import exit_base
 
@@ -61,37 +62,44 @@ def merge_candidates(
     n = len(cands)
     uf = _UF(n)
     reasons: dict[tuple[int, int], dict[str, Any]] = {}
-    for i in range(n):
-        for j in range(i + 1, n):
-            a, b = cands[i], cands[j]
-            d = float(np.hypot(a.x - b.x, a.y - b.y))
-            if a.norm_key and b.norm_key and a.norm_key == b.norm_key:
-                code = a.code or b.code or "default"
-                thr = float(merge_cfg.get(code, merge_cfg.get("default", 2000)))
-                if d <= thr:
-                    uf.union(i, j)
-                    reasons[(i, j)] = {
-                        "rule": "same_normalized_name",
-                        "name": a.norm_key,
-                        "distance_m": round(d, 1),
-                        "threshold_m": thr,
-                        "osm_ids": [a.osm_id, b.osm_id],
-                    }
-            elif (
-                (not a.norm_key or not b.norm_key)
-                and a.exit_ref
-                and exit_base(a.exit_ref) == exit_base(b.exit_ref)
-                and a.route_ref
-                and a.route_ref == b.route_ref
-                and d <= exit_ref_distance_m
-            ):
+    # どちらの規則も最大閾値より遠い組は統合しないので、KD-tree で候補の組だけを（i < j の昇順で）調べる
+    max_thr = max(
+        [float(v) for v in merge_cfg.values() if isinstance(v, (int, float))] + [2000.0, exit_ref_distance_m]
+    )
+    pairs: list[tuple[int, int]] = []
+    if n > 1:
+        tree = cKDTree(np.array([(c.x, c.y) for c in cands], dtype=float))
+        pairs = sorted(tree.query_pairs(max_thr * (1 + 1e-9) + 1e-6))
+    for i, j in pairs:
+        a, b = cands[i], cands[j]
+        d = float(np.hypot(a.x - b.x, a.y - b.y))
+        if a.norm_key and b.norm_key and a.norm_key == b.norm_key:
+            code = a.code or b.code or "default"
+            thr = float(merge_cfg.get(code, merge_cfg.get("default", 2000)))
+            if d <= thr:
                 uf.union(i, j)
                 reasons[(i, j)] = {
-                    "rule": "same_exit_number_same_route",
-                    "exit_ref": a.exit_ref,
+                    "rule": "same_normalized_name",
+                    "name": a.norm_key,
                     "distance_m": round(d, 1),
+                    "threshold_m": thr,
                     "osm_ids": [a.osm_id, b.osm_id],
                 }
+        elif (
+            (not a.norm_key or not b.norm_key)
+            and a.exit_ref
+            and exit_base(a.exit_ref) == exit_base(b.exit_ref)
+            and a.route_ref
+            and a.route_ref == b.route_ref
+            and d <= exit_ref_distance_m
+        ):
+            uf.union(i, j)
+            reasons[(i, j)] = {
+                "rule": "same_exit_number_same_route",
+                "exit_ref": a.exit_ref,
+                "distance_m": round(d, 1),
+                "osm_ids": [a.osm_id, b.osm_id],
+            }
     groups: dict[int, Group] = {}
     for i in range(n):
         r = uf.find(i)

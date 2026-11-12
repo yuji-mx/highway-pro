@@ -8,6 +8,7 @@ import json
 import math
 import pickle
 import time
+from bisect import bisect_left
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -245,9 +246,11 @@ def step_facilities(ctx: Ctx) -> None:
 
 
 # ---- 段 4: ramps ------------------------------------------------------------
-def step_ramps(ctx: Ctx) -> None:
+def step_ramps(ctx: Ctx, progress: Callable[[float, str], None] | None = None) -> None:
     assert ctx.rg is not None
-    ctx.ramps = extract_ramps(ctx.rg, ctx.facs, float(ctx.cfg.analysis["curvature"]["loop_turn_deg"]))
+    ctx.ramps = extract_ramps(
+        ctx.rg, ctx.facs, float(ctx.cfg.analysis["curvature"]["loop_turn_deg"]), progress
+    )
     by: dict[str, list[dict[str, Any]]] = {}
     for r in ctx.ramps:
         by.setdefault(r.facility_id, []).append(
@@ -874,6 +877,13 @@ def display_features(ctx: Ctx) -> pd.DataFrame:
     sp = ctx.tables.get("sample_point", pd.DataFrame())
     ms = sp[sp["element_type"] == "mainline"] if len(sp) else sp
     tree = cKDTree(ms[["x", "y"]].to_numpy()) if len(ms) else None
+    # 行ごとの pandas アクセスは遅いので、列を NumPy 配列にしておく
+    ms_cols = (
+        {c: ms[c].to_numpy(dtype=float) for c in ("grade_w100", "z_corrected", "curvature")}
+        if len(ms)
+        else {}
+    )
+    ms_low = ms["low_confidence"].to_numpy(dtype=bool) if len(ms) else np.zeros(0, dtype=bool)
 
     def add(layer: str, fid: str, props: dict[str, Any], g: BaseGeometry) -> None:
         b = g.bounds
@@ -896,12 +906,10 @@ def display_features(ctx: Ctx) -> pd.DataFrame:
         n = max(1, math.ceil(L / 100.0))
         for i in range(n):
             a, b = L * i / n, L * (i + 1) / n
-            from shapely.ops import substring
-
-            seg = substring(ch.line, a, b)
-            if seg.geom_type != "LineString" or len(seg.coords) < 2:
+            if L == 0:
                 continue
-            xy = np.asarray(seg.coords)
+            xy = ch.slice_xy(a, b)
+            seg = LineString(xy)
             mid = seg.interpolate(0.5, normalized=True)
             e = _edge_at(ch, (a + b) / 2)
             props: dict[str, Any] = {
@@ -915,13 +923,13 @@ def display_features(ctx: Ctx) -> pd.DataFrame:
             if tree is not None:
                 d, j = tree.query([mid.x, mid.y])
                 if d < 60:
-                    row = ms.iloc[int(j)]
+                    k = int(j)
                     props.update(
                         {
-                            "grade": _f(row["grade_w100"]),
-                            "z": _f(row["z_corrected"]),
-                            "curvature": _f(row["curvature"]),
-                            "low_conf": bool(row["low_confidence"]),
+                            "grade": _f(ms_cols["grade_w100"][k]),
+                            "z": _f(ms_cols["z_corrected"][k]),
+                            "curvature": _f(ms_cols["curvature"][k]),
+                            "low_conf": bool(ms_low[k]),
                         }
                     )
             add("mainline", f"{ch.chain_id}:{i}", props, _line_lonlat(rg, xy))
@@ -933,25 +941,29 @@ def display_features(ctx: Ctx) -> pd.DataFrame:
         info = rinfo.get(rid, {})
         g = grp.sort_values("seq")
         lon, lat = g["lon"].to_numpy(), g["lat"].to_numpy()
+        gw = g["grade_w100"].to_numpy(dtype=float)
+        zc = g["z_corrected"].to_numpy(dtype=float)
+        kv = np.abs(g["curvature"].to_numpy(dtype=float))
+        low = g["low_confidence"].to_numpy(dtype=bool)
         for i in range(0, max(1, len(g) - 1), 4):
             j = min(len(g) - 1, i + 4)
             if j <= i:
                 continue
-            sub = g.iloc[i : j + 1]
+            sl = slice(i, j + 1)
             props = {
                 "ramp_id": rid,
                 "facility_id": info.get("facility_id"),
                 "flow": info.get("flow"),
-                "grade": _f(sub["grade_w100"].mean()),
-                "z": _f(sub["z_corrected"].mean()),
-                "curvature": _f(sub["curvature"].abs().max()),
+                "grade": _f(_nanmean(gw[sl])),
+                "z": _f(_nanmean(zc[sl])),
+                "curvature": _f(_nanmax(kv[sl])),
                 "quality": info.get("quality_level"),
                 "dem_quality": info.get("dem_quality"),
                 "lanes": info.get("lanes"),
                 "maxspeed": info.get("maxspeed_kmh"),
                 "shape_class": info.get("shape_class"),
                 "length_m": info.get("length_m"),
-                "low_conf": bool(sub["low_confidence"].any()),
+                "low_conf": bool(low[sl].any()),
             }
             add("ramps", f"{rid}:{i}", props, LineString(np.column_stack([lon[i : j + 1], lat[i : j + 1]])))
     # 一般道（表示用に簡略化）
@@ -993,13 +1005,22 @@ def display_features(ctx: Ctx) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _nanmean(a: np.ndarray) -> float:
+    """pandas の Series.mean（NaN を除いた平均、すべて NaN なら NaN）と同じ値。"""
+    ok = ~np.isnan(a)
+    return float(a[ok].sum() / ok.sum()) if ok.any() else float("nan")
+
+
+def _nanmax(a: np.ndarray) -> float:
+    ok = ~np.isnan(a)
+    return float(a[ok].max()) if ok.any() else float("nan")
+
+
 def _edge_at(ch: Chain, s: float) -> Any:
-    acc = 0.0
-    for e in ch.edges:
-        acc += e.data["length_m"]
-        if acc >= s:
-            return e
-    return ch.edges[-1] if ch.edges else None
+    if not ch.edges:
+        return None
+    index = max(0, bisect_left(ch.s, s) - 1)
+    return ch.edges[min(index, len(ch.edges) - 1)]
 
 
 def _intval(v: Any) -> int | None:
@@ -1134,6 +1155,8 @@ def run_pipeline(
     for i in range(i0, i1 + 1):
         step = STEPS[i]
         t = time.time()
+        sub_progress = (lambda p, m, i=i: progress((i + p) / len(STEPS), m)) if progress else None
+        log_event(log, "step_start", region=region_id, step=step)
         if progress:
             progress(i / len(STEPS), f"{step} 実行中")
         if step == "ingest":
@@ -1143,11 +1166,11 @@ def run_pipeline(
         elif step == "facilities":
             step_facilities(ctx)
         elif step == "ramps":
-            step_ramps(ctx)
+            step_ramps(ctx, sub_progress)
         elif step == "sections":
             step_sections(ctx)
         elif step == "metrics":
-            step_metrics(ctx, None)
+            step_metrics(ctx, sub_progress)
         elif step == "classify":
             step_classify(ctx)
         elif step == "quality":
@@ -1162,7 +1185,11 @@ def run_pipeline(
             log_event(log, "step", step=step, seconds=round(time.time() - t, 2))
             return {"run_id": ctx.run_id, "counts": counts(ctx), "duration_s": row["duration_s"]}
         log_event(log, "step", step=step, seconds=round(time.time() - t, 2))
+        checkpoint_start = time.time()
         save_state(ctx, step)
+        log_event(
+            log, "checkpoint", region=region_id, step=step, seconds=round(time.time() - checkpoint_start, 2)
+        )
     return {
         "run_id": ctx.run_id,
         "counts": counts(ctx),

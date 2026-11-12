@@ -9,6 +9,7 @@ from typing import Any
 
 import networkx as nx
 import numpy as np
+from scipy.spatial import cKDTree
 from shapely.geometry import MultiPoint, Point
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import transform as shp_transform
@@ -243,6 +244,9 @@ def assign_components(
             if m.osm_type == "way":
                 area_owner[m.osm_id] = gi
     junction_owner = {m.osm_id: gi for gi, g in enumerate(groups) for m in g.members if m.osm_type == "node"}
+    member_points = [(m.x, m.y) for g in groups for m in g.members]
+    member_owners = [gi for gi, g in enumerate(groups) for _ in g.members]
+    member_tree = cKDTree(member_points) if member_points else None
     leftovers: list[LinkComponent] = []
     for c in comps:
         owners = sorted({junction_owner[n] for n in c.junction_nodes if n in junction_owner})
@@ -259,8 +263,12 @@ def assign_components(
             assigned[owners[0]].append(c)
             continue
         best, best_d = None, float("inf")
-        for gi, g in enumerate(groups):
-            d = _min_dist(attach, g)
+        candidates: set[int] = set()
+        if member_tree is not None and len(attach):
+            for hits in member_tree.query_ball_point(attach, search_radius_m * 0.6):
+                candidates.update(member_owners[int(j)] for j in hits)
+        for gi in sorted(candidates):
+            d = _min_dist(attach, groups[gi])
             if d < best_d:
                 best, best_d = gi, d
         if best is not None and best_d <= search_radius_m * 0.6:

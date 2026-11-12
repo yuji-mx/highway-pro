@@ -1,0 +1,13 @@
+id: california
+label: カリフォルニア州（米国）
+country: US
+range:
+  type: admin
+  admin_codes: ["06"]              # 州 FIPS コード
+  bbox: [-124.49, 32.53, -114.13, 42.01]   # 境界ポリゴン未取得時のフォールバック
+  buffer_km: 10
+  label: カリフォルニア州
+pbf:
+  url: https://download.geofabrik.de/north-america/us/california-latest.osm.pbf
+dem: us
+units: imperial

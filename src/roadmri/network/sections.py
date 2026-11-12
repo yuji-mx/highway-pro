@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import itertools
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
 import networkx as nx
 import numpy as np
-from shapely.geometry import LineString
-from shapely.ops import substring
 
 from roadmri.network.graph import RoadGraph
 from roadmri.network.junctions import Facility
@@ -83,13 +82,50 @@ class Section:
         return self.distances.get("standard")
 
 
+class FacilityIndex:
+    """区間生成で施設を引くための索引（施設 ID → 施設、出口ノード → 施設の順位と構成員の順位）。"""
+
+    def __init__(self, facs: list[Facility]):
+        self.facs = facs
+        self.by_id = {f.facility_id: f for f in facs}
+        self.by_node: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        for fi, f in enumerate(facs):
+            for mi, m in enumerate(f.members):
+                if m.osm_type == "node":
+                    self.by_node[m.osm_id].append((fi, mi))
+
+
+class RampEndIndex:
+    """ランプの始点・終点ノード → ランプの位置（元のリスト順）。チェーンごとの全ランプ走査を避ける。"""
+
+    def __init__(self, ramps: list[Ramp]):
+        self.ramps = ramps
+        self.by_node: dict[int, list[int]] = defaultdict(list)
+        for i, r in enumerate(ramps):
+            self.by_node[r.nodes[0]].append(i)
+            if r.nodes[-1] != r.nodes[0]:
+                self.by_node[r.nodes[-1]].append(i)
+
+    def touching(self, nodes: set[int]) -> list[Ramp]:
+        hit = {i for n in nodes & self.by_node.keys() for i in self.by_node[n]}
+        return [self.ramps[i] for i in sorted(hit)]
+
+
 def facilities_on_chain(
-    rg: RoadGraph, chain: Chain, facs: list[Facility], ramps: list[Ramp]
+    rg: RoadGraph,
+    chain: Chain,
+    facs: list[Facility],
+    ramps: list[Ramp],
+    index: FacilityIndex | None = None,
+    ramp_index: RampEndIndex | None = None,
 ) -> list[FacilityOnChain]:
     nodes = set(chain.node_s)
     by_fac: dict[str, FacilityOnChain] = {}
-    fac_by_id = {f.facility_id: f for f in facs}
-    for r in ramps:
+    idx = index if index is not None else FacilityIndex(facs)
+    fac_by_id = idx.by_id
+    # チェーン上に端点を持つランプだけを、元のリスト順で処理する（同順位の扱いを変えないため）
+    candidates = ramp_index.touching(nodes) if ramp_index is not None else ramps
+    for r in candidates:
         f = fac_by_id[r.facility_id]
         start, end = r.nodes[0], r.nodes[-1]
         ent = by_fac.get(f.facility_id)
@@ -111,22 +147,22 @@ def facilities_on_chain(
                 f.facility_id, FacilityOnChain(f, [], [], chain.s_of_point(f.x, f.y))
             )
             ent.merges.append((chain.node_s[end], r))
-    # ランプを持たないが本線上に出口ノードがある施設
-    for f in facs:
-        if f.facility_id in by_fac:
-            continue
-        for m in f.members:
-            if m.osm_type == "node" and m.osm_id in nodes:
-                by_fac[f.facility_id] = FacilityOnChain(f, [], [], chain.node_s[m.osm_id])
-                break
+    # ランプを持たないが本線上に出口ノードがある施設（施設ごとに、チェーン上にある最初の構成員を使う）
+    first: dict[int, int] = {}
+    for n in nodes & idx.by_node.keys():
+        for fi, mi in idx.by_node[n]:
+            if fi not in first or mi < first[fi]:
+                first[fi] = mi
+    for fi in sorted(first):
+        f = idx.facs[fi]
+        if f.facility_id not in by_fac:
+            m = f.members[first[fi]]
+            by_fac[f.facility_id] = FacilityOnChain(f, [], [], chain.node_s[m.osm_id])
     return sorted(by_fac.values(), key=lambda e: (e.s_rep, e.facility.facility_id))
 
 
 def _chain_slice(chain: Chain, s0: float, s1: float) -> np.ndarray:
-    seg = substring(chain.line, max(0.0, s0), min(chain.line.length, s1))
-    if isinstance(seg, LineString):
-        return np.asarray(seg.coords)
-    return np.array([[seg.x, seg.y], [seg.x, seg.y]])
+    return chain.slice_xy(max(0.0, s0), min(chain.line.length, s1))
 
 
 def _ways_and_struct(
@@ -163,8 +199,17 @@ def build_sections(
     for f in facs:
         if f.normalized_name:
             names[f.normalized_name] = names.get(f.normalized_name, 0) + 1
+    fidx = FacilityIndex(facs)
+    rindex: dict[str, RampEndIndex] = {}
+    ramps_by_route: dict[str, list[Ramp]] = defaultdict(list)
+    for r in ramps:
+        for route in {r.from_ref.get("route_ref"), r.to_ref.get("route_ref")}:
+            if route is not None:
+                ramps_by_route[route].append(r)
     for ch in chains:
-        on = facilities_on_chain(rg, ch, facs, ramps)
+        if ch.route_ref not in rindex:
+            rindex[ch.route_ref] = RampEndIndex(ramps_by_route[ch.route_ref])
+        on = facilities_on_chain(rg, ch, facs, ramps_by_route[ch.route_ref], fidx, rindex[ch.route_ref])
         for a, b in itertools.pairwise(on):
             fa, fb = a.facility, b.facility
             d: dict[str, float | None] = dict.fromkeys(DEFINITIONS)
@@ -241,15 +286,33 @@ def build_sections(
     return sections
 
 
-def check_connectivity(rg: RoadGraph, a_node: int, b_node: int) -> list[str]:
+class ConnectivityCache:
+    """経路異常判定用のグラフ（本線だけの有向グラフとその無向ビュー）を一度だけ作る。
+
+    rg.subgraph_view は辺を訪れるたびに Python のフィルタ関数を呼ぶため、判定を繰り返すと遅い。
+    """
+
+    def __init__(self, rg: RoadGraph):
+        self.ml = nx.DiGraph()
+        for e in rg.edges("mainline"):
+            self.ml.add_edge(e.u, e.v)
+        self.ml_und = self.ml.to_undirected(as_view=True)
+
+
+def check_connectivity(
+    rg: RoadGraph, a_node: int, b_node: int, cache: ConnectivityCache | None = None
+) -> list[str]:
     """§4.5.5 の経路異常判定（本線→無向→全道路の順に到達性を確認）。"""
-    ml = rg.subgraph_view({"mainline"})
-    if a_node in ml and b_node in ml and nx.has_path(ml, a_node, b_node):
+    c = cache if cache is not None else ConnectivityCache(rg)
+
+    def has(g: Any, a: int, b: int) -> bool:
+        return a == b or (a in g and b in g and bool(nx.has_path(g, a, b)))
+
+    if has(c.ml, a_node, b_node):
         return []
-    if a_node in ml and b_node in ml and nx.has_path(ml.to_undirected(as_view=True), a_node, b_node):
+    if has(c.ml_und, a_node, b_node):
         return ["ONEWAY_VIOLATION"]
-    allg = rg.subgraph_view({"mainline", "link", "road"})
-    if nx.has_path(allg, a_node, b_node):
+    if has(rg.g, a_node, b_node):  # 全道路（本線・ランプ・一般道）＝グラフ全体
         return ["VIA_NON_MOTORWAY"]
     return ["NO_PATH"]
 
@@ -263,21 +326,31 @@ def gap_sections(
     for c in chains:
         groups.setdefault((c.route_ref, c.direction), []).append(c)
     gap_pairs = {(g["chain_a"], g["chain_b"]) for g in gaps} | {(g["chain_b"], g["chain_a"]) for g in gaps}
+    fidx = FacilityIndex(facs)
+    conn: ConnectivityCache | None = None
+    ramps_by_route: dict[str, list[Ramp]] = defaultdict(list)
+    for r in ramps:
+        for route in {r.from_ref.get("route_ref"), r.to_ref.get("route_ref")}:
+            if route is not None:
+                ramps_by_route[route].append(r)
     for (route, direction), cs in groups.items():
         if len(cs) < 2:
             continue
-        ons = {c.chain_id: facilities_on_chain(rg, c, facs, ramps) for c in cs}
+        ri = RampEndIndex(ramps_by_route[route])
+        ons = {c.chain_id: facilities_on_chain(rg, c, facs, ramps_by_route[route], fidx, ri) for c in cs}
+        ends = {c.chain_id: (np.array(rg.node_xy(c.nodes[-1])), np.array(rg.node_xy(c.nodes[0]))) for c in cs}
         for ca in cs:
             for cb in cs:
                 if ca is cb or not ons[ca.chain_id] or not ons[cb.chain_id]:
                     continue
-                ea = np.array(rg.node_xy(ca.nodes[-1]))
-                sb = np.array(rg.node_xy(cb.nodes[0]))
+                ea = ends[ca.chain_id][0]
+                sb = ends[cb.chain_id][1]
                 if np.hypot(*(ea - sb)) > 5000:
                     continue
                 last, first = ons[ca.chain_id][-1], ons[cb.chain_id][0]
                 fa, fb = last.facility, first.facility
-                flags = check_connectivity(rg, ca.nodes[-1], cb.nodes[0])
+                conn = conn or ConnectivityCache(rg)
+                flags = check_connectivity(rg, ca.nodes[-1], cb.nodes[0], conn)
                 if (ca.chain_id, cb.chain_id) in gap_pairs:
                     flags.append("MAINLINE_GAP")
                 if not flags:
