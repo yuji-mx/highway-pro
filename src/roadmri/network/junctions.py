@@ -15,10 +15,13 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import transform as shp_transform
 
 from roadmri.ingest.osm_pbf import OsmData
+from roadmri.logging import get_logger, log_event
 from roadmri.network.dedupe import Candidate, Group
 from roadmri.network.graph import RoadGraph
 from roadmri.network.names import NameNormalizer, type_from_code
 from roadmri.units import exit_base, pretty_route
+
+log = get_logger("junctions")
 
 _B32 = "0123456789bcdefghjkmnpqrstuvwxyz"
 
@@ -543,12 +546,46 @@ def make_facilities(
                                     lst.append(part)
         fac.destinations = dest
         facs.append(fac)
-    # facility_id の衝突 → geohash7 を付加
+    dedupe_facility_ids(facs)
+    return sorted(facs, key=lambda f: f.facility_id)
+
+
+def _member_key(f: Facility) -> tuple[float, float, int]:
+    ids = [m.osm_id for m in f.members]
+    return (round(f.lat, 7), round(f.lon, 7), min(ids) if ids else 0)
+
+
+def dedupe_facility_ids(facs: list[Facility]) -> None:
+    """facility_id を一意にする。衝突したら geohash7 を付加し、それでも同じ（同名の施設が約 150 m 四方の同じ
+    セルにある）場合は、位置と最小の OSM ID の順に 2 番目以降へ -2, -3, ... を付ける（決定的）。"""
     cnt = Counter(f.facility_id for f in facs)
     for f in facs:
         if cnt[f.facility_id] > 1:
             f.facility_id = f"{f.facility_id}-{geohash(f.lon, f.lat)}"
-    return sorted(facs, key=lambda f: f.facility_id)
+    groups: dict[str, list[Facility]] = {}
+    for f in facs:
+        groups.setdefault(f.facility_id, []).append(f)
+    taken = set(groups)
+    for fid, same in groups.items():
+        if len(same) < 2:
+            continue
+        same.sort(key=_member_key)
+        k = 2
+        for f in same[1:]:
+            while f"{fid}-{k}" in taken:
+                k += 1
+            f.facility_id = f"{fid}-{k}"
+            taken.add(f.facility_id)
+            k += 1
+        log_event(
+            log,
+            "facility_id_collision",
+            facility_id=fid,
+            facilities=[
+                {"id": f.facility_id, "name": f.name, "lon": round(f.lon, 6), "lat": round(f.lat, 6)}
+                for f in same
+            ],
+        )
 
 
 def determine_types(facs: list[Facility], ramps_by_fac: dict[str, list[dict[str, Any]]]) -> None:
