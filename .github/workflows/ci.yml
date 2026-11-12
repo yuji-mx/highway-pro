@@ -20,7 +20,7 @@ jobs:
       - run: uv run ruff format --check src tests scripts
       - run: uv run mypy
       - name: pytest（オフライン、カバレッジ）
-        run: uv run pytest --disable-socket --allow-unix-socket --cov --cov-report=term --cov-fail-under=70
+        run: uv run pytest --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1 --cov --cov-report=term --cov-fail-under=70
 
   web:
     strategy:
