@@ -43,6 +43,7 @@ sources:
     adapter: usgs_3dep_tile
     base_url: https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer
     layer: usgs3dep
+    block_tiles: 4           # 1 要求で最大 4×4 タイルをまとめて取得（要求数を減らす。実測で 1 タイルあたり約 5 倍速）
     zoom: 15                 # Web メルカトル z15（北緯 42° で約 3.5 m 格子）。1 m ライダーがある所はそれをモザイク
     name: USGS 3DEP（ImageServer、z15）
     resolution_m: 3.5
@@ -54,6 +55,7 @@ sources:
     adapter: usgs_3dep_tile
     base_url: https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer
     layer: usgs3dep
+    block_tiles: 4           # 1 要求で最大 4×4 タイルをまとめて取得（要求数を減らす。実測で 1 タイルあたり約 5 倍速）
     zoom: 14                 # 約 7 m 格子（広域スクリーニング用）
     name: USGS 3DEP（ImageServer、z14）
     resolution_m: 7
@@ -84,4 +86,8 @@ profiles:
   us_fixture: [usgs_3dep_z15]
   synthetic: [synthetic]
 local_sources: []          # ユーザーが用意した GeoTIFF: [{path: ..., name: ..., resolution_m: ..., vertical_datum: ...}]
+prefetch:
+  enabled: true            # metrics 段の前に必要なタイルを一括・並列取得する（false で従来どおり逐次取得）
+  workers: 4               # 並列数の上限（実際の同時接続はホスト別の max_concurrency で制限される）
+  progress_every: 50       # 進捗の更新間隔（タイル数）
 offline: false             # true の場合、キャッシュにないタイルは取得せず欠損扱い

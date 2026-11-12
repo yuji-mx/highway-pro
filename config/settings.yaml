@@ -18,10 +18,13 @@ http:
   timeout_s: 180
   max_retries: 4
   backoff_base_s: 2.0
-  rate_limits:             # host: {min_interval_s, max_concurrency, per_second}
+  retry_after_cap_s: 120   # 429/503 の Retry-After を尊重する上限
+  rate_limits:             # host: {min_interval_s, max_concurrency, per_second, timeout_s, max_retries}
     overpass-api.de: {min_interval_s: 10.0, max_concurrency: 1}
     cyberjapandata.gsi.go.jp: {per_second: 20, max_concurrency: 4}
-    elevation.nationalmap.gov: {per_second: 5, max_concurrency: 2}
+    # 3DEP ImageServer は混雑時に 504 を返す。1 要求を短く打ち切って再試行し、それでも失敗したタイルは
+    # 下位の DEM（Copernicus）で補完して build を止めない（次回の build で再取得）。
+    elevation.nationalmap.gov: {per_second: 5, max_concurrency: 2, timeout_s: 120, max_retries: 3}
     api.openstreetmap.org: {min_interval_s: 3.0, max_concurrency: 1}
     default: {max_concurrency: 4}
 user:
