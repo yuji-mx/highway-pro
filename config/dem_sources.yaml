@@ -1,0 +1,87 @@
+# DEM ソース定義。新しいソースは adapter（roadmri.ingest.dem のレジストリ）を 1 つ追加し、ここに 1 エントリ追加する。
+sources:
+  gsi_dem5a:
+    adapter: gsi_tile
+    layer: dem5a_png
+    zoom: 15
+    name: 地理院 標高タイル DEM5A
+    resolution_m: 5
+    vertical_datum: T.P.
+    nominal_error_m: 0.3
+    attribution: 出典：国土地理院（標高タイル）
+    license: 国土地理院コンテンツ利用規約
+  gsi_dem5b:
+    adapter: gsi_tile
+    layer: dem5b_png
+    zoom: 15
+    name: 地理院 標高タイル DEM5B
+    resolution_m: 5
+    vertical_datum: T.P.
+    nominal_error_m: 0.7
+    attribution: 出典：国土地理院（標高タイル）
+    license: 国土地理院コンテンツ利用規約
+  gsi_dem10b:
+    adapter: gsi_tile
+    layer: dem_png
+    zoom: 14
+    name: 地理院 標高タイル DEM10B
+    resolution_m: 10
+    vertical_datum: T.P.
+    nominal_error_m: 5.0
+    attribution: 出典：国土地理院（標高タイル）
+    license: 国土地理院コンテンツ利用規約
+  copernicus_glo30:
+    adapter: copernicus
+    base_url: https://copernicus-dem-30m.s3.amazonaws.com
+    name: Copernicus DEM GLO-30
+    resolution_m: 30
+    vertical_datum: EGM2008
+    nominal_error_m: 4.0
+    attribution: "Copernicus DEM © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA"
+    license: Copernicus DEM licence
+  usgs_3dep_z15:
+    adapter: usgs_3dep_tile
+    base_url: https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer
+    layer: usgs3dep
+    zoom: 15                 # Web メルカトル z15（北緯 42° で約 3.5 m 格子）。1 m ライダーがある所はそれをモザイク
+    name: USGS 3DEP（ImageServer、z15）
+    resolution_m: 3.5
+    vertical_datum: NAVD88
+    nominal_error_m: 1.0
+    attribution: "USGS 3D Elevation Program (3DEP)"
+    license: Public Domain
+  usgs_3dep_z14:
+    adapter: usgs_3dep_tile
+    base_url: https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer
+    layer: usgs3dep
+    zoom: 14                 # 約 7 m 格子（広域スクリーニング用）
+    name: USGS 3DEP（ImageServer、z14）
+    resolution_m: 7
+    vertical_datum: NAVD88
+    nominal_error_m: 1.5
+    attribution: "USGS 3D Elevation Program (3DEP)"
+    license: Public Domain
+  usgs_3dep_local:
+    adapter: usgs
+    name: USGS 3DEP（ローカル GeoTIFF）
+    resolution_m: 10
+    vertical_datum: NAVD88
+    nominal_error_m: 1.5
+    attribution: "USGS 3D Elevation Program"
+    license: Public Domain
+  synthetic:
+    adapter: synthetic
+    name: 合成 DEM（テスト用）
+    resolution_m: 5
+    vertical_datum: T.P.
+    nominal_error_m: 0.0
+    attribution: 合成データ
+    license: N/A
+profiles:
+  jp: [gsi_dem5a, gsi_dem5b, gsi_dem10b, copernicus_glo30]
+  jp_fixture: [gsi_dem5a, gsi_dem10b]
+  us: [usgs_3dep_z15, copernicus_glo30]
+  us_fixture: [usgs_3dep_z15]
+  synthetic: [synthetic]
+local_sources: []          # ユーザーが用意した GeoTIFF: [{path: ..., name: ..., resolution_m: ..., vertical_datum: ...}]
+offline: false             # true の場合、キャッシュにないタイルは取得せず欠損扱い

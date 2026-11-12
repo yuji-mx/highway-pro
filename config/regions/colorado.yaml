@@ -1,0 +1,13 @@
+id: colorado
+label: コロラド州（米国、高標高）
+country: US
+range:
+  type: admin
+  admin_codes: ["08"]
+  bbox: [-109.06, 36.99, -102.04, 41.00]
+  buffer_km: 10
+  label: コロラド州
+pbf:
+  url: https://download.geofabrik.de/north-america/us/colorado-latest.osm.pbf
+dem: us
+units: imperial

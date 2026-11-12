@@ -1,0 +1,14 @@
+ramp:
+  top_n: 10
+  allow_mirror: true
+  profile_points: 64
+  use_dtw: false
+  weights: {length_m: 1.0, log_min_radius: 1.0, grade_up_max_w100: 1.0, grade_down_max_w100: 1.0,
+            abs_elev_diff: 0.7, curvature_profile: 1.0, grade_profile: 0.7}
+  category_penalty: {flow: 1.0, shape_class: 0.5}
+facility:
+  top_n: 10
+  weights: {ramp_count: 1.0, loop_ramp_count: 1.0, mean_ramp_length_m: 1.0, log_min_radius: 1.0,
+            grade_up_max_w100: 1.0, max_elev_diff_m: 1.0, connection_directions: 1.0, design_speed_kmh: 0.5}
+  w_shape: 1.5
+  w_type: 0.8

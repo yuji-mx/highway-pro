@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<style>
+:root { --bg:#05070a; --panel:#0c1015; --line:#1b232d; --tx:#d7dee7; --mut:#7d8b9a; --cyan:#38e1ff; --amber:#ffb53d; --red:#ff5b4f; }
+body { margin:0; background:var(--bg); color:var(--tx); font:13px/1.55 "Noto Sans JP", sans-serif; }
+header { padding:16px 24px; border-bottom:1px solid var(--line); }
+h1 { font-size:18px; margin:0; letter-spacing:.08em; } h1 b { color:var(--cyan); }
+.meta { color:var(--mut); font-size:12px; }
+section.item { margin:16px 24px; padding:16px; background:var(--panel); border:1px solid var(--line); border-radius:7px; page-break-inside:avoid; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+img { width:100%; border-radius:5px; border:1px solid var(--line); }
+table { border-collapse:collapse; width:100%; font-size:12px; } td { padding:3px 6px; border-bottom:1px solid var(--line); }
+td:first-child { color:var(--mut); width:40%; }
+.warn { color:var(--amber); } .error { color:var(--red); }
+.note { color:var(--mut); font-size:11px; }
+pre { white-space:pre-wrap; font-size:10px; color:var(--mut); }
+@media print { body { background:#fff; color:#000; } section.item { background:#fff; } }
+</style>
+</head>
+<body>
+<header>
+  <h1><b>ROAD MRI</b> 画像レポート</h1>
+  <div class="meta">生成日時 {{ generated_at }} ／ 検索条件：{{ query_text }} ／ {{ items|length }} 件</div>
+  <div class="note">難易度候補値は候補抽出用の目安です。スコアだけで判断せず、形状・勾配・品質を併せて確認してください。</div>
+</header>
+{% for it in items %}
+<section class="item">
+  <h2>#{{ it.index }} {{ it.facility_name or "名称不明" }}（{{ it.facility_type }}・{{ it.shape_class }}）{% if it.ramp_id %} — {{ it.ramp_id }}{% endif %}</h2>
+  <div class="meta">{{ "%.5f"|format(it.lat) }}, {{ "%.5f"|format(it.lon) }}</div>
+  <div class="grid">
+    <div><img src="images/{{ it.files.mri }}" alt="道路 MRI 画像"><div class="note">道路 MRI（勾配で色分け、橙＝対象ランプ）</div></div>
+    <div><img src="images/{{ it.files.loc }}" alt="位置確認図"><div class="note">位置確認図（背景地図なし、周辺一般道と名称ラベル）</div></div>
+    {% for k, f in it.profiles.items() %}<div><img src="images/{{ f }}" alt="{{ k }}"></div>{% endfor %}
+    <div>
+      <table>{% for lab, v in it.specs %}<tr><td>{{ lab }}</td><td>{{ v }}</td></tr>{% endfor %}</table>
+      <h3>品質・注意事項</h3>
+      {% if it.flags %}<ul>{% for f in it.flags %}<li class="{{ f.severity }}">{{ f.message_ja }}</li>{% endfor %}</ul>{% else %}<div class="note">品質フラグはありません。</div>{% endif %}
+    </div>
+  </div>
+</section>
+{% endfor %}
+<section class="item">
+  <h2>来歴</h2>
+  <div class="note">{{ attribution }}</div>
+  <pre>{{ provenance }}</pre>
+</section>
+</body>
+</html>

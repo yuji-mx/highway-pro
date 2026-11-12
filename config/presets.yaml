@@ -1,0 +1,79 @@
+# 目的別プリセット（§4.15.3）。並び順付きランキング（既定は難易度候補値の降順）を返す。
+presets:
+  - id: spec_example
+    label: 仕様書の例
+    description: 流入、長さ≥500 m、最小R≤100 m、100 m 平均上り≥5 %、DEM品質≥中
+    query:
+      target: ramp
+      where:
+        all:
+          - {field: flow, op: eq, value: entry}
+          - {field: length_m, op: gte, value: 500, unit: m}
+          - {field: min_radius_m, op: lte, value: 100, unit: m}
+          - {field: grade_up_max_w100, op: gte, value: 5, unit: "%"}
+          - {field: dem_quality, op: gte, value: medium}
+      sort: [{field: difficulty, dir: desc}]
+      limit: 500
+  - id: climbing
+    label: 登坂性能評価
+    query:
+      target: ramp
+      where: {all: [{field: grade_up_max_w100, op: gte, value: 4.5}, {field: length_m, op: gte, value: 300}]}
+      sort: [{field: difficulty, dir: desc}]
+      limit: 500
+  - id: accel_merge
+    label: 加速合流評価
+    query:
+      target: ramp
+      where:
+        all:
+          - {field: flow, op: eq, value: entry}
+          - {field: pre_merge_grade, op: gte, value: 2}
+          - any:
+              - {field: accel_lane_len_m, op: lte, value: 200}
+              - {field: length_m, op: lte, value: 450}
+      sort: [{field: difficulty, dir: desc}]
+      limit: 500
+  - id: cornering
+    label: 旋回・駆動力評価
+    query:
+      target: ramp
+      where: {all: [{field: min_radius_m, op: lte, value: 120}, {field: grade_up_max_w100, op: gte, value: 3}]}
+      sort: [{field: difficulty, dir: desc}]
+      limit: 500
+  - id: regen
+    label: 回生性能評価
+    query:
+      target: ramp
+      where: {all: [{field: grade_down_max_w100, op: gte, value: 4}]}
+      sort: [{field: grade_down_max_w100, dir: desc}]
+      limit: 500
+  - id: thermal
+    label: 熱負荷評価
+    query:
+      target: section
+      where: {all: [{field: cont_up_len_m, op: gte, value: 3000}, {field: grade_mean, op: gte, value: 2}]}
+      sort: [{field: elev_gain_m, dir: desc}]
+      limit: 500
+  - id: high_altitude
+    label: 高標高性能評価
+    description: 日本の MVP 範囲では最高標高≥300 m で試験（本来は≥800 m）
+    query:
+      target: ramp
+      where: {all: [{field: z_max, op: gte, value: 300}]}
+      sort: [{field: z_max, dir: desc}]
+      limit: 500
+  - id: continuous_grade
+    label: 連続勾配評価
+    query:
+      target: section
+      where: {all: [{field: grade_up_max_w1000, op: gte, value: 3}]}
+      sort: [{field: grade_up_max_w1000, dir: desc}]
+      limit: 500
+  - id: small_radius
+    label: 小Rランプ評価
+    query:
+      target: ramp
+      where: {all: [{field: min_radius_m, op: lte, value: 80}]}
+      sort: [{field: min_radius_m, dir: asc}]
+      limit: 500

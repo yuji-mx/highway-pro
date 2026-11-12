@@ -1,0 +1,85 @@
+{
+  "counts": {
+    "facilities": 4,
+    "ramps": 40,
+    "sections": 6
+  },
+  "facilities": [
+    {
+      "normalized_name": "I 94 Exit 175",
+      "facility_type": "IC",
+      "shape_class": "ハーフIC",
+      "ramp_count": 2,
+      "is_jct_combined": false,
+      "is_half_ic": true
+    },
+    {
+      "normalized_name": "I 94 Exit 177",
+      "facility_type": "IC",
+      "shape_class": "部分クローバー型",
+      "ramp_count": 6,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "I 94 Exit 180 / US 23 Exit 35",
+      "facility_type": "JCT",
+      "shape_class": "クローバーリーフ型",
+      "ramp_count": 10,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    },
+    {
+      "normalized_name": "I 94 Exit 181",
+      "facility_type": "IC",
+      "shape_class": "部分クローバー型",
+      "ramp_count": 6,
+      "is_jct_combined": false,
+      "is_half_ic": false
+    }
+  ],
+  "sections": [
+    {
+      "route_ref": "I 94",
+      "a": "I 94 Exit 175",
+      "b": "I 94 Exit 177",
+      "direction": "east",
+      "dist_standard_m": 1777.4
+    },
+    {
+      "route_ref": "I 94",
+      "a": "I 94 Exit 177",
+      "b": "I 94 Exit 175",
+      "direction": "west",
+      "dist_standard_m": 1564.0
+    },
+    {
+      "route_ref": "I 94",
+      "a": "I 94 Exit 177",
+      "b": "I 94 Exit 180 / US 23 Exit 35",
+      "direction": "east",
+      "dist_standard_m": 4861.2
+    },
+    {
+      "route_ref": "I 94",
+      "a": "I 94 Exit 180 / US 23 Exit 35",
+      "b": "I 94 Exit 177",
+      "direction": "west",
+      "dist_standard_m": 4909.8
+    },
+    {
+      "route_ref": "I 94",
+      "a": "I 94 Exit 180 / US 23 Exit 35",
+      "b": "I 94 Exit 181",
+      "direction": "east",
+      "dist_standard_m": 2613.0
+    },
+    {
+      "route_ref": "I 94",
+      "a": "I 94 Exit 181",
+      "b": "I 94 Exit 180 / US 23 Exit 35",
+      "direction": "west",
+      "dist_standard_m": 2785.0
+    }
+  ]
+}

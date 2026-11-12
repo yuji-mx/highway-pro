@@ -1,0 +1,13 @@
+id: michigan
+label: ミシガン州（米国）
+country: US
+range:
+  type: admin
+  admin_codes: ["26"]              # 州 FIPS コード
+  bbox: [-90.42, 41.69, -82.41, 48.31]   # 境界ポリゴン未取得時のフォールバック
+  buffer_km: 10
+  label: ミシガン州
+pbf:
+  url: https://download.geofabrik.de/north-america/us/michigan-latest.osm.pbf
+dem: us
+units: imperial

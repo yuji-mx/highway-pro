@@ -1,0 +1,13 @@
+id: tochigi_small
+label: 宇都宮IC〜鹿沼IC周辺（テスト fixture）
+country: JP
+range:
+  type: bbox
+  bbox: [139.72, 36.515, 139.90, 36.655]
+  admin_codes: ["09"]
+  buffer_km: 0
+  label: 宇都宮IC〜鹿沼IC
+pbf:
+  local: tests/fixtures/tochigi_small.osm.pbf
+dem: jp_fixture
+dem_cache_dirs: [tests/fixtures/dem/gsi]

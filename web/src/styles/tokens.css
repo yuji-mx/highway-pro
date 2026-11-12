@@ -1,0 +1,11 @@
+/* §11.2 デザイントークン（ダークテーマ固定） */
+:root {
+  --bg: #05070a; --panel: #0c1015; --panel2: #11161d; --line: #1b232d; --line2: #28323e;
+  --tx: #d7dee7; --mut: #7d8b9a; --dim: #4a5663;
+  --cyan: #38e1ff; --amber: #ffb53d; --yellow: #ffd84a; --red: #ff5b4f; --orange: #ff7a2e;
+  --green: #47e08f; --violet: #a98bff; --white: #f4f7fb;
+  --range-a: var(--cyan); --range-b: var(--orange); --range-ab: #e8e8ff;
+  --font: "Noto Sans JP", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+  --r-card: 7px; --r-input: 5px; --r-badge: 3px;
+  color-scheme: dark;
+}

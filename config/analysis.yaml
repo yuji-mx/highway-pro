@@ -1,0 +1,65 @@
+resample:
+  ramp_step_m: 5
+  mainline_step_m: 10
+  internal_ramp_step_m: 1
+  internal_mainline_step_m: 5
+geometry_smoothing:
+  method: savgol
+  ramp_window_m: 15
+  mainline_window_m: 51
+  order: 2
+  # 頂点列の罰則付き平滑化スプライン（OSM の折れ点・座標ノイズ対策。ADR-0003）
+  vertex_spline:
+    enabled: true
+    ramp_bandwidth_m: 8
+    mainline_bandwidth_m: 20
+    adaptive_alpha: 0.2        # 帯域 h = alpha × 推定最小R（反復）
+    min_bandwidth_m: 4
+    max_bandwidth_m: 80
+    iterations: 2
+    shrinkage_correction: true # R_corr = R + h^2 / R
+curvature:
+  method: three_point
+  ramp_chord_m: 10
+  mainline_chord_m: 30
+  min_arc_m: 15
+  curve_threshold_radius_m: 3000
+  curve_min_length_m: 20
+  loop_turn_deg: 200
+  ramp_rate_window_m: 40       # 曲率変化率（dκ/ds）の回帰窓
+  mainline_rate_window_m: 120
+elevation:
+  # 標高の内部計算間隔（DEM5A の解像度に合わせる。出力サンプル点は resample の間隔。ADR-0004）
+  internal_step_m: {ramp: 5, mainline: 5}
+  smoothing: {method: outlier_savgol, ramp_window_m: 25, mainline_window_m: 250, order: 2, outlier_mad: 3.0,
+              lowpass_ramp_cutoff_m: 50, lowpass_mainline_cutoff_m: 500}
+  structure_correction: {method: hermite, anchor_len_m: 20}
+  carriageway_elev_diff_m: 5
+grade:
+  windows_m: [10, 50, 100, 500, 1000]
+  default_window_m: 100
+  gain_hysteresis_m: 0.3
+  continuous_threshold_pct: 1.0
+  pre_merge_len_m: 100
+  end_len_m: 100
+facility:
+  merge_max_distance_m: {IC: 2000, JCT: 3000, default: 2000}
+  merge_exit_ref_distance_m: {default: 1000, US: 1500, CA: 1500}   # 出口番号（基本番号）一致で統合する距離
+  ramp_search_radius_m: 2500
+  general_road_radius_m: 2000
+classification:
+  low_confidence_threshold: 0.70
+  softmax_temperature: 0.5
+quality:
+  dem_low_ratio_high: 0.10
+  dem_low_ratio_medium: 0.40
+  extreme_grade_pct: 12
+  extreme_radius_m: 15
+  detour_ratio: 1.8
+  mainline_gap_m: 50
+  low_conf_dem_ratio_low_quality: 0.30
+section:
+  default_direction_for_stats: down
+route:
+  max_alternatives: 3
+  max_overlap: 0.70

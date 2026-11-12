@@ -1,0 +1,207 @@
+# 形状分類ルール（§4.9、付録 C）。変更したら version を上げる。
+version: rules-1.1.0
+classes:
+  - id: trumpet_ic
+    label: トランペット型
+    applies_to: [IC]
+    required:
+      - {feature: mainline_count, op: eq, value: 1}
+      - {feature: loop_ramp_count, op: gte, value: 1}
+      - {feature: general_road_connections, op: eq, value: 1}
+    score:
+      - {feature: loop_ramp_count, op: eq, value: 1, weight: 2.0, reason_ja: "ループランプが1本"}
+      - {feature: ramp_count, op: between, value: [3, 5], weight: 1.0, reason_ja: "本線接続ランプが3〜5本"}
+      - {feature: toll_on_general_side, op: eq, value: true, weight: 1.0, reason_ja: "料金所が一般道側にある"}
+  - id: diamond
+    label: ダイヤモンド型
+    applies_to: [IC]
+    required:
+      - {feature: loop_ramp_count, op: eq, value: 0}
+      - {feature: general_road_connections, op: gte, value: 2}
+    score:
+      - {feature: ramp_count, op: eq, value: 4, weight: 2.0, reason_ja: "ランプ4本が交差道路に直結"}
+      - {feature: crossing_road_count, op: eq, value: 1, weight: 1.0, reason_ja: "交差道路が1本"}
+      - {feature: toll_present, op: eq, value: false, weight: 0.5, reason_ja: "料金所を介さない"}
+  - id: modified_diamond
+    label: 変形ダイヤモンド型
+    applies_to: [IC]
+    required:
+      - {feature: loop_ramp_count, op: eq, value: 0}
+      - {feature: general_road_connections, op: gte, value: 2}
+    score:
+      - {feature: ramp_count, op: between, value: [3, 6], weight: 1.0, reason_ja: "ランプが3〜6本"}
+      - {feature: crossing_road_count, op: gte, value: 2, weight: 1.5, reason_ja: "交差道路が2本以上"}
+  - id: cloverleaf_ic
+    label: クローバーリーフ型
+    applies_to: [IC]
+    required:
+      - {feature: loop_ramp_count, op: gte, value: 4}
+    score:
+      - {feature: loop_ramp_count, op: eq, value: 4, weight: 2.0, reason_ja: "ループランプが4本"}
+      - {feature: ramp_count, op: gte, value: 8, weight: 1.0, reason_ja: "ランプが8本以上"}
+  - id: partial_cloverleaf
+    label: 部分クローバー型
+    applies_to: [IC]
+    required:
+      - {feature: loop_ramp_count, op: between, value: [1, 3]}
+      - {feature: general_road_connections, op: gte, value: 2}
+    score:
+      - {feature: has_general_road, op: eq, value: true, weight: 1.0, reason_ja: "平面交差で一般道に接続"}
+      - {feature: loop_ramp_count, op: eq, value: 2, weight: 1.0, reason_ja: "ループランプが2本"}
+  - id: single_point
+    label: シングルポイント型
+    applies_to: [IC]
+    required:
+      - {feature: loop_ramp_count, op: eq, value: 0}
+      - {feature: general_road_connections, op: eq, value: 1}
+      - {feature: ramp_count, op: gte, value: 4}
+    score:
+      - {feature: toll_present, op: eq, value: false, weight: 1.5, reason_ja: "単一の交差点に全ランプが集まる"}
+  - id: at_grade
+    label: 平面交差接続型
+    applies_to: [IC]
+    required:
+      - {feature: loop_ramp_count, op: eq, value: 0}
+      - {feature: general_road_connections, op: eq, value: 1}
+    score:
+      - {feature: ramp_count, op: lte, value: 3, weight: 1.0, reason_ja: "ランプが少ない"}
+  - id: half_ic
+    label: ハーフIC
+    applies_to: [IC]
+    required:
+      - {feature: is_half_ic, op: eq, value: true}
+    score:
+      - {feature: ramp_count, op: lte, value: 2, weight: 2.5, reason_ja: "流入・流出が片側・一方向のみ"}
+  - id: smart_ic
+    label: スマートIC
+    applies_to: [SIC]
+    required:
+      - {feature: is_smart, op: eq, value: true}
+    score:
+      - {feature: has_general_road, op: eq, value: true, weight: 3.0, reason_ja: "ETC専用の出入口"}
+  - id: complex_ic
+    label: 複合型
+    applies_to: [IC]
+    required:
+      - {feature: is_jct_combined, op: eq, value: true}
+    score:
+      - {feature: mainline_count, op: gte, value: 2, weight: 1.5, reason_ja: "IC と JCT を兼ねる"}
+      - {feature: toll_present, op: eq, value: true, weight: 0.5, reason_ja: "料金所を持つ"}
+  - id: y_jct
+    label: Y型
+    applies_to: [JCT]
+    required:
+      - {feature: mainline_count, op: eq, value: 2}
+      - {feature: terminating_routes, op: gte, value: 1}
+    score:
+      - {feature: mainline_angle_deg, op: lt, value: 60, weight: 1.5, reason_ja: "本線どうしの交差角が小さい"}
+      - {feature: loop_ramp_count, op: eq, value: 0, weight: 1.0, reason_ja: "ループランプなし"}
+      - {feature: jct_link_count, op: lte, value: 3, weight: 1.0, reason_ja: "連絡ランプが少ない"}
+  - id: t_jct
+    label: T型
+    applies_to: [JCT]
+    required:
+      - {feature: mainline_count, op: eq, value: 2}
+      - {feature: terminating_routes, op: gte, value: 1}
+    score:
+      - {feature: mainline_angle_deg, op: gte, value: 60, weight: 2.0, reason_ja: "一方の路線が直角に近い角度で接続"}
+      - {feature: jct_link_count, op: between, value: [3, 5], weight: 1.0, reason_ja: "連絡ランプが3〜5本"}
+  - id: trumpet_jct
+    label: トランペット型
+    applies_to: [JCT]
+    required:
+      - {feature: mainline_count, op: eq, value: 2}
+      - {feature: loop_ramp_count, op: eq, value: 1}
+    score:
+      - {feature: terminating_routes, op: gte, value: 1, weight: 1.5, reason_ja: "一方の路線が終端"}
+      - {feature: jct_link_count, op: between, value: [3, 5], weight: 1.0, reason_ja: "連絡ランプが3〜5本"}
+  - id: cloverleaf_jct
+    label: クローバーリーフ型
+    applies_to: [JCT]
+    required:
+      - {feature: loop_ramp_count, op: gte, value: 4}
+    score:
+      - {feature: connection_directions, op: eq, value: 4, weight: 1.0, reason_ja: "4方向に接続"}
+      - {feature: loop_ramp_count, op: eq, value: 4, weight: 2.0, reason_ja: "ループランプが4本"}
+  - id: turbine
+    label: タービン型
+    applies_to: [JCT]
+    required:
+      - {feature: connection_directions, op: gte, value: 4}
+      - {feature: loop_ramp_count, op: eq, value: 0}
+    score:
+      - {feature: sweeping_jct_ramps, op: gte, value: 4, weight: 2.0, reason_ja: "旋回ランプ4本以上が大きな同方向曲率を持つ"}
+      - {feature: layer_count, op: lte, value: 2, weight: 1.0, reason_ja: "立体レベルが2以下"}
+      - {feature: terminating_routes, op: eq, value: 0, weight: 1.0, reason_ja: "両路線とも通過"}
+  - id: stack
+    label: スタック型
+    applies_to: [JCT]
+    required:
+      - {feature: connection_directions, op: gte, value: 4}
+      - {feature: loop_ramp_count, op: eq, value: 0}
+      - {feature: layer_count, op: gte, value: 3}
+    score:
+      - {feature: layer_count, op: gte, value: 4, weight: 2.0, reason_ja: "立体レベルが4以上"}
+      - {feature: terminating_routes, op: eq, value: 0, weight: 1.0, reason_ja: "両路線とも通過"}
+  - id: pinwheel
+    label: 風車型
+    applies_to: [JCT]
+    required:
+      - {feature: connection_directions, op: gte, value: 4}
+      - {feature: loop_ramp_count, op: between, value: [1, 3]}
+    score:
+      - {feature: loop_ramp_count, op: eq, value: 2, weight: 1.0, reason_ja: "ループランプが2本"}
+  - id: complex_jct
+    label: 複合型
+    applies_to: [JCT]
+    required:
+      - {feature: mainline_count, op: gte, value: 3}
+    score:
+      - {feature: mainline_count, op: gte, value: 3, weight: 2.0, reason_ja: "3路線以上が接続"}
+  - id: sa_pa
+    label: SA/PA
+    applies_to: [SA, PA]
+    required: []
+    score:
+      - {feature: facility_type, op: in, value: [SA, PA], weight: 5.0, reason_ja: "休憩施設（分類対象外）"}
+required_penalty: 3.0
+fallback:
+  label: 分類不能
+  reason_template_ja: "必須条件を満たす分類がありません（{unmet}）"
+# 国別の分岐（§4.11.6、§17-8）。disable で既定の分類を外し、classes で追加・置換する。
+# 北米：料金所のない IC が大半なので、トランペット型の判定に料金所を使わない。部分クローバー（parclo）と
+# シングルポイント（SPUI）が多いため、それぞれの加点を強める。
+country_overrides:
+  US: &north_america
+    disable: [trumpet_ic, partial_cloverleaf, single_point]
+    classes:
+      - id: trumpet_ic_na
+        label: トランペット型
+        applies_to: [IC]
+        required:
+          - {feature: mainline_count, op: eq, value: 1}
+          - {feature: loop_ramp_count, op: eq, value: 1}
+          - {feature: general_road_connections, op: eq, value: 1}
+        score:
+          - {feature: loop_ramp_count, op: eq, value: 1, weight: 2.0, reason_ja: "ループランプが1本"}
+          - {feature: ramp_count, op: between, value: [3, 5], weight: 1.0, reason_ja: "本線接続ランプが3〜5本"}
+      - id: partial_cloverleaf_na
+        label: 部分クローバー型
+        applies_to: [IC]
+        required:
+          - {feature: loop_ramp_count, op: between, value: [1, 3]}
+          - {feature: general_road_connections, op: gte, value: 2}
+        score:
+          - {feature: has_general_road, op: eq, value: true, weight: 1.0, reason_ja: "平面交差で一般道に接続"}
+          - {feature: loop_ramp_count, op: eq, value: 2, weight: 1.5, reason_ja: "ループランプが2本（parclo）"}
+          - {feature: ramp_count, op: between, value: [4, 6], weight: 1.0, reason_ja: "本線接続ランプが4〜6本"}
+      - id: single_point_na
+        label: シングルポイント型
+        applies_to: [IC]
+        required:
+          - {feature: loop_ramp_count, op: eq, value: 0}
+          - {feature: general_road_connections, op: eq, value: 1}
+          - {feature: ramp_count, op: gte, value: 4}
+        score:
+          - {feature: crossing_road_count, op: eq, value: 1, weight: 2.0, reason_ja: "単一の交差点に全ランプが集まる（SPUI）"}
+  CA: *north_america
