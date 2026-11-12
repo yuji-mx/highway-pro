@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -84,7 +85,7 @@ def _parse_int(v: Any) -> int | None:
 
 def _walk_ramps(rg: RoadGraph, comp: LinkComponent) -> list[list[EdgeRef]]:
     sub = nx.MultiDiGraph()
-    for u, v, k, d in rg.g.edges(keys=True, data=True):
+    for u, v, k, d in rg.g.edges(sorted(comp.nodes), keys=True, data=True):
         if d["cls"] == "link" and u in comp.nodes and v in comp.nodes:
             sub.add_edge(u, v, key=k)
     und = nx.Graph(sub.to_undirected())
@@ -169,13 +170,20 @@ def _turn_deg(xy: np.ndarray) -> float:
     return float(np.degrees(np.ptp(th))) if len(th) else 0.0
 
 
-def extract_ramps(rg: RoadGraph, facs: list[Facility], loop_turn_deg: float) -> list[Ramp]:
+def extract_ramps(
+    rg: RoadGraph,
+    facs: list[Facility],
+    loop_turn_deg: float,
+    progress: Callable[[float, str], None] | None = None,
+) -> list[Ramp]:
     out: list[Ramp] = []
-    for f in facs:
+    for fi, f in enumerate(facs):
+        if progress and fi % 20 == 0:
+            progress(fi / max(1, len(facs)), f"ramps {fi}/{len(facs)}")
         fac_ramps: list[Ramp] = []
         for comp in f.components:
             sub = nx.DiGraph()
-            for u, v, _k, d in rg.g.edges(keys=True, data=True):
+            for u, v, _k, d in rg.g.edges(sorted(comp.nodes), keys=True, data=True):
                 if d["cls"] == "link" and u in comp.nodes and v in comp.nodes:
                     sub.add_edge(u, v)
             terminals = comp.mainline_nodes | comp.road_nodes | comp.dead_ends
@@ -295,6 +303,8 @@ def extract_ramps(rg: RoadGraph, facs: list[Facility], loop_turn_deg: float) -> 
             r.seq = i
             r.ramp_id = f"{f.facility_id}-RAMP-{i:03d}"
         out.extend(fac_ramps)
+    if progress:
+        progress(1.0, f"ramps {len(facs)}/{len(facs)}")
     return out
 
 

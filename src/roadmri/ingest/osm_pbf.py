@@ -191,18 +191,20 @@ def read_osm(path: Path, highways: set[str] | None = None, clip: BaseGeometry | 
     # ルートリレーションによる ref・路線名の補完
     if len(rel_df) and len(ways):
         rel_ref: dict[int, tuple[str | None, str | None]] = {}
-        for _, rr in rel_df.iterrows():
-            ref = rr["ref"] if isinstance(rr["ref"], str) and rr["ref"] else None
-            name = rr["name"] if isinstance(rr["name"], str) and rr["name"] else None
+        for rr in rel_df.itertuples(index=False):
+            ref = rr.ref if isinstance(rr.ref, str) and rr.ref else None
+            name = rr.name if isinstance(rr.name, str) and rr.name else None
             if ref is None:
                 continue
-            for wid in rr["way_ids"]:
+            for wid in rr.way_ids:
                 rel_ref.setdefault(int(wid), (ref, name))
-        for i, row in ways.iterrows():
-            t = row["tags"]
-            if "ref" not in t and row["way_id"] in rel_ref and rel_ref[row["way_id"]][0]:
-                t = {**t, "ref": rel_ref[row["way_id"]][0], "_ref_from_relation": "yes"}
-                ways.at[i, "tags"] = t
+        updated_tags = []
+        for row in ways.itertuples(index=False):
+            t = row.tags
+            if "ref" not in t and row.way_id in rel_ref and rel_ref[row.way_id][0]:
+                t = {**t, "ref": rel_ref[row.way_id][0], "_ref_from_relation": "yes"}
+            updated_tags.append(t)
+        ways["tags"] = updated_tags
     nodes = pd.DataFrame(
         sorted(r.nodes.values(), key=lambda d: d["node_id"]),
         columns=["node_id", "lon", "lat", "tags", "kind", "timestamp"],
