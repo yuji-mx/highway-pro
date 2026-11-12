@@ -9,7 +9,7 @@ import math
 import pickle
 import time
 from bisect import bisect_left
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +29,7 @@ from roadmri.classify.engine import classify
 from roadmri.classify.features import facility_features
 from roadmri.config import Config
 from roadmri.geometry.projection import Projector
+from roadmri.geometry.resample import resample_step
 from roadmri.ingest.boundaries import load_admin
 from roadmri.ingest.dem import DemSampler, build_providers
 from roadmri.ingest.http import HttpClient
@@ -156,7 +157,13 @@ def make_dem_sampler(ctx: Ctx, offline: bool | None = None) -> tuple[DemSampler,
     caches.append(cfg.path("raw_dir") / "dem" / "tiles")
     off = bool(dem_cfg.get("offline", False)) if offline is None else offline
     http = None if off else HttpClient(cfg.settings)
-    dctx = {"tile_cache_dirs": caches, "http": http, "offline": off, "cache_dir": cfg.path("raw_dir") / "dem"}
+    dctx = {
+        "tile_cache_dirs": caches,
+        "http": http,
+        "offline": off,
+        "cache_dir": cfg.path("raw_dir") / "dem",
+        "progress_every": int((dem_cfg.get("prefetch") or {}).get("progress_every", 50)),
+    }
     providers = build_providers(dem_cfg, str(ctx.region.get("dem", "jp")), dctx)
     return DemSampler(providers), providers
 
@@ -310,13 +317,41 @@ def accel_lane_length(rg: RoadGraph, merge_node: int, max_len: float = 1500.0) -
     return None
 
 
+def _dem_points(ctx: Ctx, cfg: dict[str, Any]) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """metrics 段が標高を参照する点（analyze_element と同じ内部刻み）を要素ごとに返す。"""
+    assert ctx.rg is not None
+    steps = cfg["elevation"]["internal_step_m"]
+    elems = [(ctx.rg.edges_xy(r.edges), float(steps["ramp"])) for r in ctx.ramps]
+    elems += [(s.geom_xy, float(steps["mainline"])) for s in ctx.sections if len(s.geom_xy) >= 2]
+    for xy, step in elems:
+        _, pts = resample_step(np.asarray(xy, dtype=float), step)
+        lon, lat = ctx.rg.proj.to_lonlat(pts[:, 0], pts[:, 1])
+        yield np.asarray(lon, dtype=float), np.asarray(lat, dtype=float)
+
+
 def step_metrics(ctx: Ctx, progress: Callable[[float, str], None] | None = None) -> None:
     assert ctx.rg is not None
     cfg = dict(ctx.cfg.analysis)
     cfg["_composite"] = ctx.cfg.difficulty["composite"]
     sampler, providers = make_dem_sampler(ctx)
+    pf = ctx.cfg.dem_sources.get("prefetch") or {}
+    # 事前取得を行う場合、進捗の前半を標高タイルの取得、後半を解析に割り当てる
+    pre_share = 0.5 if pf.get("enabled", True) else 0.0
+    if pre_share:
+        t0 = time.perf_counter()
+        sampler.prefetch(
+            _dem_points(ctx, cfg),
+            int(pf.get("workers", 4)),
+            (lambda d, n, m: progress(pre_share * d / max(1, n), m)) if progress else None,
+        )
+        log_event(log, "dem_prefetch_done", region=ctx.region_id, seconds=round(time.perf_counter() - t0, 2))
     total = max(1, len(ctx.ramps) + len(ctx.sections))
     done = 0
+
+    def prog(msg: str) -> None:
+        if progress:
+            progress(pre_share + (1 - pre_share) * done / total, msg)
+
     for r in ctx.ramps:
         xy = ctx.rg.edges_xy(r.edges)
         geom = ElementGeom(
@@ -334,16 +369,16 @@ def step_metrics(ctx: Ctx, progress: Callable[[float, str], None] | None = None)
         )
         ctx.ramp_results[r.ramp_id] = res
         done += 1
-        if progress and done % 20 == 0:
-            progress(done / total, f"ランプ解析 {done}/{len(ctx.ramps)}")
+        if done % 20 == 0:
+            prog(f"ランプ解析 {done}/{len(ctx.ramps)}")
     for s in ctx.sections:
         if len(s.geom_xy) < 2:
             continue
         geom = ElementGeom("mainline", s.section_id, s.geom_xy, s.edges_struct, section_id=s.section_id)
         ctx.section_results[s.section_id] = analyze_element(geom, ctx.rg.proj, sampler, cfg)
         done += 1
-        if progress and done % 5 == 0:
-            progress(done / total, f"区間解析 {done - len(ctx.ramps)}/{len(ctx.sections)}")
+        if done % 5 == 0:
+            prog(f"区間解析 {done - len(ctx.ramps)}/{len(ctx.sections)}")
     all_src: set[str] = set()
     miss: dict[str, list[float]] = {}
     for res in list(ctx.ramp_results.values()) + list(ctx.section_results.values()):
