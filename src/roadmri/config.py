@@ -64,10 +64,10 @@ class Config:
 
     @property
     def config_hash(self) -> str:
-        """解析結果に影響する設定のハッシュ。パス・ポート・HTTP・ユーザー名・オフライン指定など環境依存の値は除く。"""
+        """解析結果に影響する設定のハッシュ。パス・ポート・HTTP・ユーザー名・オフライン指定など環境依存の値と、画面表示（地図・一覧）の設定は除く。"""
         data = json.loads(json.dumps(self.data, default=str))
         settings = data.get("settings", {})
-        for k in ("paths", "server", "http", "user"):
+        for k in ("paths", "server", "http", "user", "map", "list"):
             settings.pop(k, None)
         data.get("dem_sources", {}).pop("offline", None)
         blob = json.dumps(data, sort_keys=True, ensure_ascii=False).encode()

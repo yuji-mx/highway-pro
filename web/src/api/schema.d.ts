@@ -141,6 +141,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tiles/{layer}/{z}/{x}/{y}.pbf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tile
+         * @description 道路のベクタタイル（Mapbox Vector Tile）。v に公開 ID を付けた URL はブラウザに長期キャッシュさせる。
+         */
+        get: operations["tile_api_tiles__layer___z___x___y__pbf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/layers/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Layers Summary
+         * @description 地図の初期表示と色分けに使う要約（全要素を送らずに済むように）。
+         */
+        get: operations["layers_summary_api_layers_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/facilities": {
         parameters: {
             query?: never;
@@ -150,6 +190,26 @@ export interface paths {
         };
         /** List Facilities */
         get: operations["list_facilities_api_facilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/facilities.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Facilities Csv
+         * @description 一覧と同じ条件の全件を CSV（UTF-8 BOM 付き、Excel で開ける）で返す。
+         */
+        get: operations["facilities_csv_api_facilities_csv_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1203,6 +1263,8 @@ export interface operations {
             query?: {
                 bbox?: string | null;
                 zoom?: number | null;
+                /** @description 低ズーム用のまとめ数（1 は元の要素） */
+                lod?: number;
             };
             header?: never;
             path: {
@@ -1236,6 +1298,8 @@ export interface operations {
         parameters: {
             query?: {
                 bbox?: string | null;
+                /** @description 低ズーム用のまとめ数（1 は元の要素） */
+                lod?: number;
             };
             header?: never;
             path: {
@@ -1265,9 +1329,67 @@ export interface operations {
             };
         };
     };
+    tile_api_tiles__layer___z___x___y__pbf_get: {
+        parameters: {
+            query?: {
+                v?: string | null;
+            };
+            header?: never;
+            path: {
+                layer: string;
+                z: number;
+                x: number;
+                y: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    layers_summary_api_layers_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
     list_facilities_api_facilities_get: {
         parameters: {
             query?: {
+                offset?: number;
+                limit?: number;
                 type?: string | null;
                 route?: string | null;
                 min_confidence?: number | null;
@@ -1278,8 +1400,6 @@ export interface operations {
                 q?: string | null;
                 sort?: string;
                 order?: string;
-                offset?: number;
-                limit?: number;
             };
             header?: never;
             path?: never;
@@ -1296,6 +1416,46 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    facilities_csv_api_facilities_csv_get: {
+        parameters: {
+            query?: {
+                type?: string | null;
+                route?: string | null;
+                min_confidence?: number | null;
+                review_status?: string | null;
+                quality?: string | null;
+                needs_review?: boolean;
+                in_range?: boolean | null;
+                q?: string | null;
+                sort?: string;
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

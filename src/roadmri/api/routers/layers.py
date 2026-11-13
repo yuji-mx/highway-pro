@@ -26,9 +26,14 @@ def _bbox(b: str | None) -> list[float] | None:
     return v
 
 
-def _query(s: AppState, name: str, bbox: list[float] | None) -> Any:
-    sql = "SELECT feature_id, props, geom FROM display_feature WHERE layer=?"
-    params: list[Any] = [name]
+def _query(s: AppState, name: str, bbox: list[float] | None, lod: int = 1) -> Any:
+    if lod > 1 and not s.store.scalar(
+        "SELECT count(*) > 0 FROM (SELECT 1 FROM display_feature WHERE layer=? AND coalesce(lod, 1)=? LIMIT 1)",
+        [name, lod],
+    ):
+        lod = 1  # まとめ版がない（このバージョンより前の build、または設定にないまとめ数）
+    sql = "SELECT feature_id, props, geom FROM display_feature WHERE layer=? AND coalesce(lod, 1)=?"
+    params: list[Any] = [name, lod]
     if bbox:
         sql += " AND maxx >= ? AND minx <= ? AND maxy >= ? AND miny <= ?"
         params += [bbox[0], bbox[2], bbox[1], bbox[3]]
@@ -37,16 +42,20 @@ def _query(s: AppState, name: str, bbox: list[float] | None) -> Any:
 
 @router.get("/layers/{name}.fgb")
 def layer_fgb(
-    name: str, bbox: str | None = None, zoom: float | None = Query(None), s: AppState = Depends(state)
+    name: str,
+    bbox: str | None = None,
+    zoom: float | None = Query(None),
+    lod: int = Query(1, ge=1, description="低ズーム用のまとめ数（1 は元の要素）"),
+    s: AppState = Depends(state),
 ) -> Response:
     if name not in LAYERS:
         raise HTTPException(404, f"レイヤーが見つかりません: {name}")
     bb = _bbox(bbox)
-    if bb is None:
+    if bb is None and lod == 1:
         p = s.cfg.path("tiles_dir") / f"{name}.fgb"
         if p.exists():
             return FileResponse(p, media_type="application/octet-stream")
-    gdf = to_gdf(_query(s, name, bb))
+    gdf = to_gdf(_query(s, name, bb, lod))
     if gdf.empty:
         return Response(b"", media_type="application/octet-stream")
     with tempfile.TemporaryDirectory() as d:
@@ -57,10 +66,15 @@ def layer_fgb(
 
 
 @router.get("/layers/{name}.geojson")
-def layer_geojson(name: str, bbox: str | None = None, s: AppState = Depends(state)) -> Response:
+def layer_geojson(
+    name: str,
+    bbox: str | None = None,
+    lod: int = Query(1, ge=1, description="低ズーム用のまとめ数（1 は元の要素）"),
+    s: AppState = Depends(state),
+) -> Response:
     if name not in LAYERS:
         raise HTTPException(404, f"レイヤーが見つかりません: {name}")
-    gdf = to_gdf(_query(s, name, _bbox(bbox)))
+    gdf = to_gdf(_query(s, name, _bbox(bbox), lod))
     body = (
         gdf.to_json(drop_id=True) if len(gdf) else json.dumps({"type": "FeatureCollection", "features": []})
     )
