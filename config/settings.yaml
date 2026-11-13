@@ -37,3 +37,11 @@ osm:
   geofabrik_base: https://download.geofabrik.de
   general_road_highways: [primary, secondary, tertiary, primary_link, secondary_link, tertiary_link, trunk, trunk_link]
   display_road_highways: [unclassified, residential]
+map:                       # 地図表示（Web UI）。広域データでの描画負荷を抑える設定
+  label_min_zoom: 11       # IC・SA/PA の名称を表示する最小ズーム
+  jct_label_min_zoom: 9    # JCT の名称を表示する最小ズーム
+  label_max_count: 300     # 同時に表示する名称の上限（表示範囲内のものだけ作る）
+  label_update_delay_ms: 150   # 地図の移動が止まってから名称を更新するまでの待ち時間
+  glow_min_zoom: 10        # 発光（線の重ね描き）を行う最小ズーム。これより広域では 1 本の線だけ描く
+  general_min_zoom: 10     # 一般道を取得・表示する最小ズーム
+
