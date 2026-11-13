@@ -25,8 +25,9 @@ def to_gdf(df: pd.DataFrame) -> gpd.GeoDataFrame:
 def write_layers(disp: pd.DataFrame, out_dir: Path) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = []
+    base = disp[disp["lod"].fillna(1) == 1] if len(disp) and "lod" in disp.columns else disp
     for layer in LAYERS:
-        sub = disp[disp["layer"] == layer] if len(disp) else disp
+        sub = base[base["layer"] == layer] if len(base) else base
         gdf = to_gdf(sub)
         p = out_dir / f"{layer}.fgb"
         if p.exists():

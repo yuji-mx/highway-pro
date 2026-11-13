@@ -22,6 +22,7 @@ from shapely.affinity import translate
 
 from roadmri.api.main import create_app
 from roadmri.config import load_config
+from roadmri.export.vector_tiles import spatial_sort
 from roadmri.pipeline import run_pipeline
 from roadmri.store.duckdb_store import Store
 
@@ -62,7 +63,8 @@ def replicate(store: Store, copies: int) -> dict[str, int]:
         f["geom"] = _shift_geom(f["geom"], dx, dy)
         f["hull"] = _shift_geom(f["hull"], dx, dy)
         f_parts.append(f)
-    store.replace_table("display_feature", pd.concat(d_parts, ignore_index=True))
+    # 公開時と同じく、タイルの範囲検索が速くなるように位置の順に並べる
+    store.replace_table("display_feature", spatial_sort(pd.concat(d_parts, ignore_index=True)))
     store.replace_table("facility", pd.concat(f_parts, ignore_index=True))
     out = store.df("SELECT layer, count(*) AS n FROM display_feature GROUP BY 1 ORDER BY 1")
     return {

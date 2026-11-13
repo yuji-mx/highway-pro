@@ -37,7 +37,7 @@ def fid(c, key="合成ダイヤモンド|IC"):
 
 def test_meta_display_settings(client):
     m = client.get("/api/meta").json()
-    assert m["map"]["label_max_count"] > 0 and m["map"]["general_min_zoom"] > 0
+    assert m["map"]["label_max_count"] > 0 and m["map"]["tiles"]["layers"]["general"]["min_zoom"] > 0
     assert m["list"]["page_size"] > 0
 
 
@@ -90,6 +90,54 @@ def test_layers(client):
     assert len(gj["features"]) == 8
     assert client.get("/api/layers/unknown.fgb").status_code == 404
     assert client.get("/api/layers/ramps.fgb?bbox=1,2").status_code == 422
+
+
+def _tile_of(lon: float, lat: float, z: int) -> tuple[int, int]:
+    import math
+
+    n = 2**z
+    lr = math.radians(lat)
+    return int((lon + 180) / 360 * n), int((1 - math.log(math.tan(lr) + 1 / math.cos(lr)) / math.pi) / 2 * n)
+
+
+def test_tiles(client):
+    import mapbox_vector_tile
+
+    TILE_PROPS = client.get("/api/meta").json()["map"]["tiles"]["layers"]["mainline"]["props"]
+
+    summ = client.get("/api/layers/summary").json()
+    w, so, e, n = summ["bounds"]
+    assert summ["z_range"][0] <= summ["z_range"][1] and summ["shapes"]
+    run_id = client.get("/api/meta").json()["run"]["run_id"]
+    lon, lat = (w + e) / 2, (so + n) / 2
+    counts = {}
+    for z in (6, 12, 14):
+        x, y = _tile_of(lon, lat, z)
+        r = client.get(f"/api/tiles/mainline/{z}/{x}/{y}.pbf?v={run_id}")
+        assert r.status_code == 200 and r.headers["content-type"] == "application/vnd.mapbox-vector-tile"
+        assert "immutable" in r.headers["cache-control"]
+        layer = mapbox_vector_tile.decode(r.content)["mainline"]
+        assert layer["extent"] == 4096 and layer["features"]
+        # 地図で使う属性だけ（設定の props）を入れる
+        assert "direction" in layer["features"][0]["properties"]
+        assert all(set(f["properties"]) <= set(TILE_PROPS) for f in layer["features"])
+        counts[z] = len(layer["features"])
+    # 広域（z6）は連続する要素をまとめた版なので、詳細（z14）より 1 タイルの要素が少ないか同じ
+    assert counts[6] <= counts[12]
+    # 古い URL（公開 ID が違う）はブラウザに長期キャッシュさせない
+    x, y = _tile_of(lon, lat, 12)
+    assert "no-cache" in client.get(f"/api/tiles/mainline/12/{x}/{y}.pbf?v=old").headers["cache-control"]
+    # 最小ズーム未満の一般道は空のタイル
+    assert (
+        client.get(f"/api/tiles/general/5/{_tile_of(lon, lat, 5)[0]}/{_tile_of(lon, lat, 5)[1]}.pbf").content
+        == b""
+    )
+    assert client.get("/api/tiles/unknown/1/0/0.pbf").status_code == 404
+    assert client.get("/api/tiles/mainline/3/9/0.pbf").status_code == 404
+    # 低ズーム用のまとめ版は GeoJSON でも取れる（範囲統計比較の重ね描き用）
+    base = client.get("/api/layers/mainline.geojson").json()["features"]
+    coarse = client.get("/api/layers/mainline.geojson?lod=16").json()["features"]
+    assert 0 < len(coarse) < len(base)
 
 
 def test_facilities(client):

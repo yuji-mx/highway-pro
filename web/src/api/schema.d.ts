@@ -141,6 +141,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tiles/{layer}/{z}/{x}/{y}.pbf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tile
+         * @description 道路のベクタタイル（Mapbox Vector Tile）。v に公開 ID を付けた URL はブラウザに長期キャッシュさせる。
+         */
+        get: operations["tile_api_tiles__layer___z___x___y__pbf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/layers/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Layers Summary
+         * @description 地図の初期表示と色分けに使う要約（全要素を送らずに済むように）。
+         */
+        get: operations["layers_summary_api_layers_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/facilities": {
         parameters: {
             query?: never;
@@ -1223,6 +1263,8 @@ export interface operations {
             query?: {
                 bbox?: string | null;
                 zoom?: number | null;
+                /** @description 低ズーム用のまとめ数（1 は元の要素） */
+                lod?: number;
             };
             header?: never;
             path: {
@@ -1256,6 +1298,8 @@ export interface operations {
         parameters: {
             query?: {
                 bbox?: string | null;
+                /** @description 低ズーム用のまとめ数（1 は元の要素） */
+                lod?: number;
             };
             header?: never;
             path: {
@@ -1281,6 +1325,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tile_api_tiles__layer___z___x___y__pbf_get: {
+        parameters: {
+            query?: {
+                v?: string | null;
+            };
+            header?: never;
+            path: {
+                layer: string;
+                z: number;
+                x: number;
+                y: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    layers_summary_api_layers_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

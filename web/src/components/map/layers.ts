@@ -9,17 +9,21 @@ import {
 
 export const DATA_LAYERS = ["mainline", "ramps", "general", "facilities", "tolls", "structures"] as const;
 export type DataLayer = (typeof DATA_LAYERS)[number];
+/** ベクタタイルで表示範囲だけ取得する道路のレイヤー（/api/tiles）。 */
+export const TILE_LAYERS = ["mainline", "ramps", "general", "structures"] as const;
+/** 件数が少なく、全件を GeoJSON で持つレイヤー。 */
+export const GEOJSON_LAYERS = ["facilities", "tolls"] as const;
 
 const cache = new Map<string, Promise<FeatureCollection>>();
 
-/** 表示用ベクタ（FlatGeobuf）を取得して GeoJSON に変換する。 */
-export function loadLayer(name: DataLayer, runId = ""): Promise<FeatureCollection> {
-  const key = `${name}:${runId}`;
+/** 表示用ベクタ（FlatGeobuf）を取得して GeoJSON に変換する。lod は低ズーム用のまとめ数（1 は元の要素）。 */
+export function loadLayer(name: DataLayer, runId = "", lod = 1): Promise<FeatureCollection> {
+  const key = `${name}:${runId}:${lod}`;
   if (!cache.has(key)) {
     cache.set(
       key,
       api
-        .bytes(`/layers/${name}.fgb`)
+        .bytes(`/layers/${name}.fgb${lod > 1 ? `?lod=${lod}` : ""}`)
         .then((bytes) => (bytes.length ? (deserialize(bytes) as unknown as FeatureCollection) : { type: "FeatureCollection", features: [] }))
         .catch((e) => {
           cache.delete(key);

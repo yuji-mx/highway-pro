@@ -31,6 +31,7 @@ from roadmri.api.routers import (
     search,
     sections,
     similar,
+    tiles,
 )
 from roadmri.config import Config, get_config
 from roadmri.export.tabular import ExportError
@@ -62,6 +63,7 @@ def create_app(cfg: Config | None = None, store: Store | None = None) -> FastAPI
         regions,
         jobs,
         layers,
+        tiles,
         facilities,
         ramps,
         sections,

@@ -7,7 +7,7 @@ import { api } from "../../api/client";
 import { useCursor, useLayers } from "../../state/stores";
 import { useSettings } from "../../state/units";
 import {
-  DATA_LAYERS, GLOW_LEVELS, WARNING_FILTER, facilityLayers, lineLayerIds, lineLayers, linePaint, loadLayer, warningLayer,
+  GEOJSON_LAYERS, GLOW_LEVELS, TILE_LAYERS, WARNING_FILTER, facilityLayers, lineLayerIds, lineLayers, linePaint, loadLayer, warningLayer,
   type DataLayer, type StyleOpts,
 } from "./layers";
 
@@ -64,7 +64,16 @@ export interface MapSettings {
   label_max_count: number;
   label_update_delay_ms: number;
   glow_min_zoom: number;
-  general_min_zoom: number;
+  tiles: { max_zoom: number; layers: Record<string, { min_zoom: number }> };
+}
+
+/** /api/layers/summary（全要素を送らずに、色分けの範囲・初期表示に使う要約）。 */
+interface Summary {
+  run_id: string;
+  z_range: [number, number] | null;
+  shapes: string[];
+  bounds: [number, number, number, number] | null;
+  country_bounds: Record<string, [number, number, number, number]>;
 }
 
 type Layer = { id: string; visible: boolean };
@@ -77,7 +86,6 @@ export default function RoadMriMap(p: Props) {
   const built = useRef(false);
   const overlayIds = useRef<string[]>([]);
   const [ready, setReady] = useState(false);
-  const [zoom, setZoom] = useState(p.zoom ?? 11);
   const [data, setData] = useState<Partial<Record<DataLayer, FeatureCollection>>>({});
   const L = useLayers();
   const cursor = useCursor((s) => s.pos);
@@ -85,12 +93,12 @@ export default function RoadMriMap(p: Props) {
   const runId = meta.data?.run?.run_id ?? "";
   const cfg: MapSettings | undefined = meta.data?.map;
 
-  // 表示用データ。一般道（最大のレイヤー）は表示中かつ一定以上のズームのときだけ取得する
+  // 施設・料金所は件数が少ないので全件（GeoJSON）。道路はベクタタイルで表示範囲だけを取得する
   useEffect(() => {
     if (!runId) return;
     let alive = true;
     setData({});
-    for (const n of DATA_LAYERS.filter((x) => x !== "general")) {
+    for (const n of GEOJSON_LAYERS) {
       loadLayer(n, runId)
         .then((fc) => alive && setData((d) => ({ ...d, [n]: fc })))
         .catch(() => undefined);
@@ -99,30 +107,14 @@ export default function RoadMriMap(p: Props) {
       alive = false;
     };
   }, [runId]);
-  const wantGeneral = !!cfg && L.visible.general && zoom >= cfg.general_min_zoom;
-  useEffect(() => {
-    if (!runId || !wantGeneral || data.general) return;
-    let alive = true;
-    loadLayer("general", runId)
-      .then((fc) => alive && setData((d) => ({ ...d, general: fc })))
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [runId, wantGeneral, data.general]);
+  const summary = useQuery({
+    queryKey: ["layers-summary", runId],
+    queryFn: () => api.get<Summary>("/layers/summary"),
+    enabled: !!runId,
+  });
 
-  const zr = useMemo<[number, number]>(() => {
-    const zs = [...(data.mainline?.features ?? []), ...(data.ramps?.features ?? [])]
-      .map((f) => f.properties?.z)
-      .filter((z): z is number => typeof z === "number")
-      .sort((a, b) => a - b);
-    if (!zs.length) return [30, 550];
-    return [zs[Math.floor(zs.length * 0.02)], zs[Math.floor(zs.length * 0.98)]];
-  }, [data.mainline, data.ramps]);
-  const shapes = useMemo(
-    () => [...new Set((data.facilities?.features ?? []).map((f) => String(f.properties?.shape_class)))].sort(),
-    [data.facilities],
-  );
+  const zr = useMemo<[number, number]>(() => summary.data?.z_range ?? [30, 550], [summary.data]);
+  const shapes = useMemo(() => summary.data?.shapes ?? [], [summary.data]);
   const opts: StyleOpts = useMemo(
     () => ({ metric: L.metric, glow: L.glow, widthByCurvature: L.widthByCurvature, zr, shapes }),
     [L.metric, L.glow, L.widthByCurvature, zr, shapes],
@@ -143,7 +135,6 @@ export default function RoadMriMap(p: Props) {
     mapRef.current = m;
     (window as any).__roadmriMaps = { ...((window as any).__roadmriMaps ?? {}), [p.testId ?? "map"]: m };
     m.on("load", () => setReady(true));
-    m.on("zoomend", () => setZoom(m.getZoom()));
     if (p.interactive ?? true) m.addControl(new maplibregl.ScaleControl({ unit: useSettings.getState().units === "imperial" ? "imperial" : "metric" }), "bottom-left");
     p.onMap?.(m);
     return () => {
@@ -159,11 +150,24 @@ export default function RoadMriMap(p: Props) {
   // （以前は表示切替や選択のたびに全ソースを作り直し、全データを描画スレッドへ送り直していた）
   useEffect(() => {
     const m = mapRef.current;
-    if (!m || !ready || !cfg || built.current) return;
+    if (!m || !ready || !cfg || !runId || built.current) return;
     built.current = true;
-    for (const n of DATA_LAYERS) m.addSource(n, { type: "geojson", data: EMPTY as any });
-    const add = (l: any) => m.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: "none" } });
-    add({ id: "general", type: "line", source: "general", minzoom: cfg.general_min_zoom, paint: { "line-color": "rgba(110,125,140,0.30)",
+    for (const n of TILE_LAYERS) {
+      m.addSource(n, {
+        type: "vector",
+        tiles: [`${window.location.origin}/api/tiles/${n}/{z}/{x}/{y}.pbf?v=${encodeURIComponent(runId)}`],
+        minzoom: cfg.tiles.layers[n]?.min_zoom ?? 0,
+        maxzoom: cfg.tiles.max_zoom,
+      });
+    }
+    for (const n of GEOJSON_LAYERS) m.addSource(n, { type: "geojson", data: EMPTY as any });
+    // ベクタタイルのソースを使うレイヤーには source-layer（タイル内のレイヤー名＝ソース名）を付ける
+    const add = (l: any) => m.addLayer({
+      ...l,
+      ...((TILE_LAYERS as readonly string[]).includes(l.source) ? { "source-layer": l.source } : {}),
+      layout: { ...(l.layout ?? {}), visibility: "none" },
+    });
+    add({ id: "general", type: "line", source: "general", paint: { "line-color": "rgba(110,125,140,0.30)",
       "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.9, 15, 1.3] } });
     add({ id: "bridges", type: "line", source: "structures", filter: ["in", ["get", "kind"], ["literal", ["bridge", "viaduct"]]],
       paint: { "line-color": "rgba(169,139,255,0.55)", "line-width": 5 } });
@@ -182,18 +186,32 @@ export default function RoadMriMap(p: Props) {
       paint: { "circle-radius": 7, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
     add({ id: "tolls", type: "circle", source: "tolls", paint: { "circle-radius": 2.5, "circle-color": "#ffb53d" } });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, cfg]);
+  }, [ready, cfg, runId]);
   const [builtTick, setBuiltTick] = useState(0);
   useEffect(() => {
-    if (ready && cfg) setBuiltTick((x) => x + 1);
-  }, [ready, cfg]);
+    if (ready && cfg && runId) setBuiltTick((x) => x + 1);
+  }, [ready, cfg, runId]);
 
   // データの反映（変わったソースだけ）
   const sent = useRef<Partial<Record<DataLayer, FeatureCollection>>>({});
+  // 公開 ID が変わったら（再 build 後）タイルを取り直す
+  const tileRun = useRef("");
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m || !built.current || !runId) return;
+    if (tileRun.current && tileRun.current !== runId) {
+      for (const n of TILE_LAYERS) {
+        (m.getSource(n) as maplibregl.VectorTileSource | undefined)?.setTiles([
+          `${window.location.origin}/api/tiles/${n}/{z}/{x}/{y}.pbf?v=${encodeURIComponent(runId)}`,
+        ]);
+      }
+    }
+    tileRun.current = runId;
+  }, [runId, builtTick]);
   useEffect(() => {
     const m = mapRef.current;
     if (!m || !built.current) return;
-    for (const n of DATA_LAYERS) {
+    for (const n of GEOJSON_LAYERS) {
       const fc = data[n] ?? EMPTY;
       if (sent.current[n] === fc) continue;
       (m.getSource(n) as maplibregl.GeoJSONSource | undefined)?.setData(fc as any);
@@ -311,21 +329,19 @@ export default function RoadMriMap(p: Props) {
     };
   }, [ready, data.facilities, L.visible.labels, p.showLabels, cfg]);
 
-  // 表示範囲
+  // 表示範囲（要約の範囲を使う。国が複数あるときは指定の国、なければ最初の国）
   useEffect(() => {
     const m = mapRef.current;
     if (!m || !ready) return;
-    const facs = data.facilities ?? EMPTY;
-    const countries = new Set(facs.features.map((f) => String(f.properties?.facility_id ?? "").slice(0, 2)));
-    const want = p.country ?? (countries.size > 1 ? [...countries].sort()[0] : null);
-    const byCountry = want
-      ? boundsOf({ type: "FeatureCollection", features: facs.features.filter((f) => String(f.properties?.facility_id ?? "").startsWith(`${want}-`)) })
-      : null;
+    const sm = summary.data;
+    const countries = Object.keys(sm?.country_bounds ?? {}).sort();
+    const want = p.country ?? (countries.length > 1 ? countries[0] : null);
+    const byCountry = want ? sm?.country_bounds?.[want] ?? null : null;
     const padded = byCountry ? ([byCountry[0] - 0.05, byCountry[1] - 0.04, byCountry[2] + 0.05, byCountry[3] + 0.04] as [number, number, number, number]) : null;
-    const b = p.focus ?? (p.center ? null : padded ?? boundsOf(data.mainline ?? EMPTY) ?? boundsOf(facs));
+    const b = p.focus ?? (p.center ? null : padded ?? sm?.bounds ?? boundsOf(data.facilities ?? EMPTY));
     if (b) m.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 30, animate: false, maxZoom: 16 });
     else if (p.center) m.jumpTo({ center: p.center, zoom: p.zoom ?? 14 });
-  }, [ready, p.focus, p.center, p.zoom, p.country, data.mainline, data.facilities]);
+  }, [ready, p.focus, p.center, p.zoom, p.country, summary.data, data.facilities]);
 
   // クリック・ホバー・カーソル
   useEffect(() => {
