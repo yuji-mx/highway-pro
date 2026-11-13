@@ -6,6 +6,7 @@
     'GET /api/changes',
     'GET /api/edits',
     'GET /api/facilities',
+    'GET /api/facilities.csv',
     'GET /api/facilities/{facility_id}',
     'GET /api/facilities/{facility_id}/history',
     'GET /api/facilities/{facility_id}/similar',

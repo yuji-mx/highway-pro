@@ -158,6 +158,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/facilities.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Facilities Csv
+         * @description 一覧と同じ条件の全件を CSV（UTF-8 BOM 付き、Excel で開ける）で返す。
+         */
+        get: operations["facilities_csv_api_facilities_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/facilities/{facility_id}": {
         parameters: {
             query?: never;
@@ -1268,6 +1288,8 @@ export interface operations {
     list_facilities_api_facilities_get: {
         parameters: {
             query?: {
+                offset?: number;
+                limit?: number;
                 type?: string | null;
                 route?: string | null;
                 min_confidence?: number | null;
@@ -1278,8 +1300,6 @@ export interface operations {
                 q?: string | null;
                 sort?: string;
                 order?: string;
-                offset?: number;
-                limit?: number;
             };
             header?: never;
             path?: never;
@@ -1296,6 +1316,46 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    facilities_csv_api_facilities_csv_get: {
+        parameters: {
+            query?: {
+                type?: string | null;
+                route?: string | null;
+                min_confidence?: number | null;
+                review_status?: string | null;
+                quality?: string | null;
+                needs_review?: boolean;
+                in_range?: boolean | null;
+                q?: string | null;
+                sort?: string;
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

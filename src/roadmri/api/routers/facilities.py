@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 
 from roadmri.analysis.similarity import similar_facilities
 from roadmri.api.deps import AppState, state
@@ -25,65 +27,109 @@ SORTABLE = {
 }
 
 
+@dataclass
+class FacilityFilter:
+    """一覧・CSV で共通の絞り込み条件。"""
+
+    type: str | None = None
+    route: str | None = None
+    min_confidence: float | None = None
+    review_status: str | None = None
+    quality: str | None = None
+    needs_review: bool = False
+    in_range: bool | None = None
+    q: str | None = None
+    sort: str = "name"
+    order: str = "asc"
+
+    def sql(self) -> tuple[str, list[Any], str]:
+        """WHERE 句、そのパラメータ、ORDER BY 句。"""
+        where = ["TRUE"]
+        p: list[Any] = []
+        if self.type:
+            where.append("facility_type = ?")
+            p.append(self.type)
+        if self.route:
+            where.append("list_contains(route_refs, ?)")
+            p.append(self.route)
+        if self.min_confidence is not None:
+            where.append("shape_confidence >= ?")
+            p.append(self.min_confidence)
+        if self.review_status:
+            where.append("review_status = ?")
+            p.append(self.review_status)
+        if self.quality:
+            where.append("quality_level = ?")
+            p.append(self.quality)
+        if self.needs_review:
+            where.append("(review_status = 'needs_review' OR quality_level IN ('low','unusable'))")
+        if self.in_range is not None:
+            where.append("in_range = ?")
+            p.append(self.in_range)
+        if self.q:
+            from roadmri.config import get_config
+            from roadmri.network.names import NameNormalizer
+
+            cfg = get_config()
+            nn = NameNormalizer(cfg.name_normalization, cfg.name_aliases).normalize(self.q)
+            where.append(
+                "(name ILIKE ? OR normalized_name ILIKE ? OR name_en ILIKE ? OR exit_number ILIKE ? "
+                "OR list_contains(name_variants, ?))"
+            )
+            p += [f"%{self.q}%", f"%{nn.stem if nn else self.q}%", f"%{self.q}%", f"{self.q}%", self.q]
+        if self.sort not in SORTABLE:
+            raise HTTPException(422, f"並べ替えできない項目です: {self.sort}")
+        direction = "DESC" if self.order == "desc" else "ASC"
+        return " AND ".join(where), p, f"{self.sort} {direction} NULLS LAST, facility_id"
+
+
 @router.get("/facilities")
 def list_facilities(
-    type: str | None = None,
-    route: str | None = None,
-    min_confidence: float | None = None,
-    review_status: str | None = None,
-    quality: str | None = None,
-    needs_review: bool = False,
-    in_range: bool | None = None,
-    q: str | None = None,
-    sort: str = "name",
-    order: str = "asc",
+    f: Annotated[FacilityFilter, Depends()],
     offset: int = Query(0, ge=0),
     limit: int = Query(1000, ge=1, le=10000),
     s: AppState = Depends(state),
 ) -> dict[str, Any]:
-    where = ["TRUE"]
-    p: list[Any] = []
-    if type:
-        where.append("facility_type = ?")
-        p.append(type)
-    if route:
-        where.append("list_contains(route_refs, ?)")
-        p.append(route)
-    if min_confidence is not None:
-        where.append("shape_confidence >= ?")
-        p.append(min_confidence)
-    if review_status:
-        where.append("review_status = ?")
-        p.append(review_status)
-    if quality:
-        where.append("quality_level = ?")
-        p.append(quality)
-    if needs_review:
-        where.append("(review_status = 'needs_review' OR quality_level IN ('low','unusable'))")
-    if in_range is not None:
-        where.append("in_range = ?")
-        p.append(in_range)
-    if q:
-        from roadmri.config import get_config
-        from roadmri.network.names import NameNormalizer
-
-        cfg = get_config()
-        nn = NameNormalizer(cfg.name_normalization, cfg.name_aliases).normalize(q)
-        where.append(
-            "(name ILIKE ? OR normalized_name ILIKE ? OR name_en ILIKE ? OR list_contains(name_variants, ?))"
-        )
-        p += [f"%{q}%", f"%{nn.stem if nn else q}%", f"%{q}%", q]
-    if sort not in SORTABLE:
-        raise HTTPException(422, f"並べ替えできない項目です: {sort}")
-    direction = "DESC" if order == "desc" else "ASC"
-    w = " AND ".join(where)
+    w, p, order = f.sql()
     total = int(s.store.scalar(f"SELECT count(*) FROM facility WHERE {w}", p) or 0)
     df = s.store.df(
-        f"SELECT * EXCLUDE (geom, hull) FROM facility WHERE {w} ORDER BY {sort} {direction} NULLS LAST, "
-        f"facility_id LIMIT {limit} OFFSET {offset}",
+        f"SELECT * EXCLUDE (geom, hull) FROM facility WHERE {w} ORDER BY {order} LIMIT {limit} OFFSET {offset}",
         p,
     )
     return {"total": total, "items": records(df)}
+
+
+CSV_COLUMNS = {
+    "facility_id": "施設ID",
+    "name": "名称",
+    "facility_type": "種別",
+    "route_refs": "路線",
+    "exit_number": "出口番号",
+    "shape_class": "推定分類",
+    "shape_confidence": "信頼度",
+    "shape_class_2": "第2候補",
+    "shape_confidence_2": "第2候補の信頼度",
+    "ramp_count": "ランプ数",
+    "quality_level": "品質",
+    "review_status": "確認状態",
+    "lat": "緯度",
+    "lon": "経度",
+}
+
+
+@router.get("/facilities.csv")
+def facilities_csv(f: Annotated[FacilityFilter, Depends()], s: AppState = Depends(state)) -> Response:
+    """一覧と同じ条件の全件を CSV（UTF-8 BOM 付き、Excel で開ける）で返す。"""
+    w, p, order = f.sql()
+    cols = ", ".join(CSV_COLUMNS)
+    df = s.store.df(f"SELECT {cols} FROM facility WHERE {w} ORDER BY {order}", p)
+    df["route_refs"] = [";".join(v) if v is not None and len(v) else "" for v in df["route_refs"]]
+    body = df.rename(columns=CSV_COLUMNS).to_csv(index=False)
+    return Response(
+        "\ufeff" + body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="facilities.csv"'},
+    )
 
 
 def _fac(s: AppState, fid: str) -> dict[str, Any]:

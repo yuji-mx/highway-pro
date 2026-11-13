@@ -35,6 +35,12 @@ def fid(c, key="合成ダイヤモンド|IC"):
     return c.state.store.scalar("SELECT facility_id FROM facility WHERE normalized_name=?", [key])
 
 
+def test_meta_display_settings(client):
+    m = client.get("/api/meta").json()
+    assert m["map"]["label_max_count"] > 0 and m["map"]["general_min_zoom"] > 0
+    assert m["list"]["page_size"] > 0
+
+
 def test_meta(client):
     m = client.get("/api/meta").json()
     assert m["counts"]["facility"] == 8 and m["has_data"]
@@ -93,6 +99,19 @@ def test_facilities(client):
     assert client.get("/api/facilities?q=クローバー").json()["items"][0]["name"] == "合成クローバーIC"
     assert client.get("/api/facilities?q=合成クローバーインターチェンジ").json()["total"] >= 1
     assert client.get("/api/facilities?sort=bogus").status_code == 422
+    # サーバー側のページ分割・並べ替え（一覧画面）
+    page1 = client.get("/api/facilities?sort=name&order=desc&limit=3&offset=0").json()
+    page2 = client.get("/api/facilities?sort=name&order=desc&limit=3&offset=3").json()
+    assert page1["total"] == page2["total"] == 8 and len(page1["items"]) == 3
+    names = [x["name"] for x in page1["items"] + page2["items"]]
+    assert names == sorted(names, reverse=True)
+    assert not {x["facility_id"] for x in page1["items"]} & {x["facility_id"] for x in page2["items"]}
+    # 一覧と同じ条件の CSV（全件、BOM 付き）
+    csv = client.get("/api/facilities.csv?type=JCT")
+    assert csv.status_code == 200 and csv.headers["content-type"].startswith("text/csv")
+    lines = csv.content.decode("utf-8-sig").strip().splitlines()
+    assert lines[0].startswith("施設ID,名称,種別") and len(lines) == 1 + 2
+    assert client.get("/api/facilities.csv?sort=bogus").status_code == 422
     d = client.get(f"/api/facilities/{fid(client)}").json()
     assert d["shape_class"] == "ダイヤモンド型" and len(d["ramps"]) == 4 and d["sections"]
     assert d["geometry"]["type"] == "Point" and d["classification"]["features"]["ramp_count"] == 4

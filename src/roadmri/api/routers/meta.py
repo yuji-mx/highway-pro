@@ -33,4 +33,5 @@ def meta(s: AppState = Depends(state)) -> dict[str, Any]:
         "countries": countries,
         "has_data": counts["facility"] > 0,
         "map": s.cfg.settings.get("map", {}),
+        "list": s.cfg.settings.get("list", {}),
     }
