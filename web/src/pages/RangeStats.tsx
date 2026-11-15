@@ -71,10 +71,16 @@ export default function RangeStats() {
   const m = d?.metrics?.find((x: any) => x.key === metricKey) ?? d?.metrics?.[0];
   const [layerFac, setLayerFac] = useState<FeatureCollection | null>(null);
   const [layerMain, setLayerMain] = useState<FeatureCollection | null>(null);
+  // 本線は重ね描き用に、連続する要素をまとめた版（全要素は州規模では重い）
+  const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<any>("/meta") });
+  const overlayLod: number | undefined = meta.data?.map?.overlay_lod;
   useEffect(() => {
     loadLayer("facilities").then(setLayerFac).catch(() => setLayerFac(null));
-    loadLayer("mainline").then(setLayerMain).catch(() => setLayerMain(null));
   }, []);
+  useEffect(() => {
+    if (overlayLod == null) return;
+    loadLayer("mainline", "", overlayLod).then(setLayerMain).catch(() => setLayerMain(null));
+  }, [overlayLod]);
   const overlays = useMemo<Overlay[]>(() => {
     if (!d || !layerFac) return [];
     const A = new Set<string>(d.a.facility_ids), B = new Set<string>(d.b.facility_ids);

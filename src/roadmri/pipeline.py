@@ -28,6 +28,7 @@ from roadmri.analysis.ranges import range_geometry
 from roadmri.classify.engine import classify
 from roadmri.classify.features import facility_features
 from roadmri.config import Config
+from roadmri.export.vector_tiles import add_lods, spatial_sort
 from roadmri.geometry.projection import Projector
 from roadmri.geometry.resample import resample_step
 from roadmri.ingest.boundaries import load_admin
@@ -1037,7 +1038,16 @@ def display_features(ctx: Ctx) -> pd.DataFrame:
         for t in f.toll_nodes:
             lo, la = rg.node_lonlat(t)
             add("tolls", f"toll:{t}", {"facility_id": f.facility_id}, Point(lo, la))
-    return pd.DataFrame(rows)
+    return finish_display(pd.DataFrame(rows), ctx.cfg)
+
+
+def finish_display(disp: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+    """低ズーム用のまとめ版（lod）を加え、タイルの範囲検索が速くなるように位置の順に並べる（ADR-0015）。"""
+    if disp.empty:
+        return disp.assign(lod=pd.Series(dtype=int))
+    layers = (cfg.settings.get("map", {}).get("tiles", {}) or {}).get("layers", {}) or {}
+    lods = {name: [int(k) for _, k in (spec or {}).get("lod", [])] for name, spec in layers.items()}
+    return spatial_sort(add_lods(disp, lods))
 
 
 def _nanmean(a: np.ndarray) -> float:
@@ -1325,7 +1335,7 @@ def run_multi(
     combo.facs = [f for c in ctxs for f in c.facs]
     combo.ramps = [r for c in ctxs for r in c.ramps]
     combo.sections = [s for c in ctxs for s in c.sections]
-    disp = pd.concat([display_features(c) for c in ctxs], ignore_index=True)
+    disp = spatial_sort(pd.concat([display_features(c) for c in ctxs], ignore_index=True))
     if progress:
         progress(len(regions) / (len(regions) + 1), "publish 実行中")
     row = step_publish(combo, store, started, disp)

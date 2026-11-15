@@ -35,6 +35,12 @@ def fid(c, key="合成ダイヤモンド|IC"):
     return c.state.store.scalar("SELECT facility_id FROM facility WHERE normalized_name=?", [key])
 
 
+def test_meta_display_settings(client):
+    m = client.get("/api/meta").json()
+    assert m["map"]["label_max_count"] > 0 and m["map"]["tiles"]["layers"]["general"]["min_zoom"] > 0
+    assert m["list"]["page_size"] > 0
+
+
 def test_meta(client):
     m = client.get("/api/meta").json()
     assert m["counts"]["facility"] == 8 and m["has_data"]
@@ -86,6 +92,54 @@ def test_layers(client):
     assert client.get("/api/layers/ramps.fgb?bbox=1,2").status_code == 422
 
 
+def _tile_of(lon: float, lat: float, z: int) -> tuple[int, int]:
+    import math
+
+    n = 2**z
+    lr = math.radians(lat)
+    return int((lon + 180) / 360 * n), int((1 - math.log(math.tan(lr) + 1 / math.cos(lr)) / math.pi) / 2 * n)
+
+
+def test_tiles(client):
+    import mapbox_vector_tile
+
+    TILE_PROPS = client.get("/api/meta").json()["map"]["tiles"]["layers"]["mainline"]["props"]
+
+    summ = client.get("/api/layers/summary").json()
+    w, so, e, n = summ["bounds"]
+    assert summ["z_range"][0] <= summ["z_range"][1] and summ["shapes"]
+    run_id = client.get("/api/meta").json()["run"]["run_id"]
+    lon, lat = (w + e) / 2, (so + n) / 2
+    counts = {}
+    for z in (6, 12, 14):
+        x, y = _tile_of(lon, lat, z)
+        r = client.get(f"/api/tiles/mainline/{z}/{x}/{y}.pbf?v={run_id}")
+        assert r.status_code == 200 and r.headers["content-type"] == "application/vnd.mapbox-vector-tile"
+        assert "immutable" in r.headers["cache-control"]
+        layer = mapbox_vector_tile.decode(r.content)["mainline"]
+        assert layer["extent"] == 4096 and layer["features"]
+        # 地図で使う属性だけ（設定の props）を入れる
+        assert "direction" in layer["features"][0]["properties"]
+        assert all(set(f["properties"]) <= set(TILE_PROPS) for f in layer["features"])
+        counts[z] = len(layer["features"])
+    # 広域（z6）は連続する要素をまとめた版なので、詳細（z14）より 1 タイルの要素が少ないか同じ
+    assert counts[6] <= counts[12]
+    # 古い URL（公開 ID が違う）はブラウザに長期キャッシュさせない
+    x, y = _tile_of(lon, lat, 12)
+    assert "no-cache" in client.get(f"/api/tiles/mainline/12/{x}/{y}.pbf?v=old").headers["cache-control"]
+    # 最小ズーム未満の一般道は空のタイル
+    assert (
+        client.get(f"/api/tiles/general/5/{_tile_of(lon, lat, 5)[0]}/{_tile_of(lon, lat, 5)[1]}.pbf").content
+        == b""
+    )
+    assert client.get("/api/tiles/unknown/1/0/0.pbf").status_code == 404
+    assert client.get("/api/tiles/mainline/3/9/0.pbf").status_code == 404
+    # 低ズーム用のまとめ版は GeoJSON でも取れる（範囲統計比較の重ね描き用）
+    base = client.get("/api/layers/mainline.geojson").json()["features"]
+    coarse = client.get("/api/layers/mainline.geojson?lod=16").json()["features"]
+    assert 0 < len(coarse) < len(base)
+
+
 def test_facilities(client):
     r = client.get("/api/facilities").json()
     assert r["total"] == 8
@@ -93,6 +147,19 @@ def test_facilities(client):
     assert client.get("/api/facilities?q=クローバー").json()["items"][0]["name"] == "合成クローバーIC"
     assert client.get("/api/facilities?q=合成クローバーインターチェンジ").json()["total"] >= 1
     assert client.get("/api/facilities?sort=bogus").status_code == 422
+    # サーバー側のページ分割・並べ替え（一覧画面）
+    page1 = client.get("/api/facilities?sort=name&order=desc&limit=3&offset=0").json()
+    page2 = client.get("/api/facilities?sort=name&order=desc&limit=3&offset=3").json()
+    assert page1["total"] == page2["total"] == 8 and len(page1["items"]) == 3
+    names = [x["name"] for x in page1["items"] + page2["items"]]
+    assert names == sorted(names, reverse=True)
+    assert not {x["facility_id"] for x in page1["items"]} & {x["facility_id"] for x in page2["items"]}
+    # 一覧と同じ条件の CSV（全件、BOM 付き）
+    csv = client.get("/api/facilities.csv?type=JCT")
+    assert csv.status_code == 200 and csv.headers["content-type"].startswith("text/csv")
+    lines = csv.content.decode("utf-8-sig").strip().splitlines()
+    assert lines[0].startswith("施設ID,名称,種別") and len(lines) == 1 + 2
+    assert client.get("/api/facilities.csv?sort=bogus").status_code == 422
     d = client.get(f"/api/facilities/{fid(client)}").json()
     assert d["shape_class"] == "ダイヤモンド型" and len(d["ramps"]) == 4 and d["sections"]
     assert d["geometry"]["type"] == "Point" and d["classification"]["features"]["ramp_count"] == 4

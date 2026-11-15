@@ -17,7 +17,7 @@ export interface Col<T> {
 
 /** 並べ替え・固定ヘッダー付きの表（TanStack Table）。 */
 export default function DataTable<T extends Record<string, any>>({
-  rows, cols, onRow, rowClass, maxHeight = 520, testId, onRowHover,
+  rows, cols, onRow, rowClass, maxHeight = 520, testId, onRowHover, serverSort, onServerSort,
 }: {
   rows: T[];
   cols: Col<T>[];
@@ -26,8 +26,12 @@ export default function DataTable<T extends Record<string, any>>({
   maxHeight?: number | string;
   testId?: string;
   onRowHover?: (r: T | null) => void;
+  /** サーバー側で並べ替える場合の現在の並び（指定時は表の中では並べ替えない）。 */
+  serverSort?: { key: string; desc: boolean };
+  onServerSort?: (key: string) => void;
 }) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [localSorting, setSorting] = useState<SortingState>([]);
+  const sorting: SortingState = serverSort ? [{ id: serverSort.key, desc: serverSort.desc }] : localSorting;
   const columns: ColumnDef<T>[] = cols.map((c) => ({
     id: c.key,
     header: c.unit ? `${c.label} [${unitLabel(c.unit)}]` : c.label,
@@ -38,7 +42,7 @@ export default function DataTable<T extends Record<string, any>>({
     meta: { num: c.num },
   }));
   const table = useReactTable({
-    data: rows, columns, state: { sorting }, onSortingChange: setSorting,
+    data: rows, columns, state: { sorting }, onSortingChange: setSorting, manualSorting: !!serverSort,
     getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(),
   });
   return (
@@ -48,7 +52,7 @@ export default function DataTable<T extends Record<string, any>>({
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>
               {hg.headers.map((h) => (
-                <th key={h.id} onClick={h.column.getToggleSortingHandler()} aria-sort={h.column.getIsSorted() === "asc" ? "ascending" : h.column.getIsSorted() === "desc" ? "descending" : "none"}>
+                <th key={h.id} onClick={onServerSort ? (h.column.getCanSort() ? () => onServerSort(h.column.id) : undefined) : h.column.getToggleSortingHandler()} aria-sort={h.column.getIsSorted() === "asc" ? "ascending" : h.column.getIsSorted() === "desc" ? "descending" : "none"}>
                   {flexRender(h.column.columnDef.header, h.getContext())}
                   {{ asc: " ▲", desc: " ▼" }[h.column.getIsSorted() as string] ?? ""}
                 </th>

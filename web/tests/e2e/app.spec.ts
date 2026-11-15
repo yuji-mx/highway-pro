@@ -186,6 +186,29 @@ test("12. ブラウザの戻る・進むで画面と選択状態が戻る", asyn
   await expect(page.getByTestId("info-panel")).toBeVisible();
 });
 
+test("13. IC/JCT 一覧：検索語でサーバー側を絞り込み、見出しクリックでサーバー側の並べ替え、CSV は同じ条件の全件", async ({ page }) => {
+  await page.goto("/facilities");
+  const table = page.getByTestId("facility-table");
+  await expect(table.locator("tbody tr").first()).toBeVisible();
+  const all = await table.locator("tbody tr").count();
+  await page.getByTestId("facility-search").fill("宇都宮");
+  await expect(page).toHaveURL(/q=%E5%AE%87%E9%83%BD%E5%AE%AE/);
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(table).toContainText("宇都宮IC");
+  await page.getByTestId("facility-search").fill("");
+  await expect(table.locator("tbody tr")).toHaveCount(all);
+  await table.locator("th", { hasText: "名称" }).click();
+  await expect(page).toHaveURL(/sort=name&order=desc|order=desc.*sort=name/);
+  const names = await table.locator("tbody tr td:first-child").allTextContents();
+  expect(names).toEqual([...names].sort().reverse());
+  await expect(page.getByTestId("facility-pager")).toContainText("1 / 1");
+  const href = await page.getByTestId("facility-csv").getAttribute("href");
+  const csv = await page.request.get(href!);
+  const lines = (await csv.text()).replace(/^\uFEFF/, "").trim().split("\n");
+  expect(lines[0]).toContain("施設ID,名称,種別");
+  expect(lines.length - 1).toBe(all);
+});
+
 test("オフライン：外部（CDN 等）へのリクエストが 0 件", async ({ page }) => {
   for (const p of ["/region", "/mri", "/facilities", "/sections", "/search", "/stats", "/compare"]) {
     await page.goto(p);

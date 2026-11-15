@@ -37,3 +37,34 @@ osm:
   geofabrik_base: https://download.geofabrik.de
   general_road_highways: [primary, secondary, tertiary, primary_link, secondary_link, tertiary_link, trunk, trunk_link]
   display_road_highways: [unclassified, residential]
+map:                       # 地図表示（Web UI）。広域データでの描画負荷を抑える設定
+  label_min_zoom: 11       # IC・SA/PA の名称を表示する最小ズーム
+  jct_label_min_zoom: 9    # JCT の名称を表示する最小ズーム
+  label_max_count: 300     # 同時に表示する名称の上限（表示範囲内のものだけ作る）
+  label_update_delay_ms: 150   # 地図の移動が止まってから名称を更新するまでの待ち時間
+  overlay_lod: 16          # 範囲統計比較の地図で重ね描きする本線のまとめ数（tiles.layers.mainline.lod にある値）
+  glow_min_zoom: 10        # 発光（線の重ね描き）を行う最小ズーム。これより広域では 1 本の線だけ描く
+  tiles:                   # 道路はベクタタイル（/api/tiles/{layer}/{z}/{x}/{y}.pbf）で表示範囲だけ配信する
+    max_zoom: 14           # タイルを作る最大ズーム（これより拡大すると 14 のタイルを拡大して描く）
+    extent: 4096           # タイル内の座標の分解能
+    buffer: 64             # タイルの外側に含める幅（境界で線が途切れないように）
+    simplify: 8            # 線の簡略化の許容差（タイル座標。extent 4096 で 256 px のとき 16 が 1 px）
+    cache_tiles: 4000      # サーバーのメモリに保持するタイル数
+    # 各レイヤー：min_zoom 未満では取得しない。lod: [[最大ズーム, まとめ数], ...]（連続する要素をまとめて減らす。
+    # 各ズームでまとめた線が数ピクセルになる程度）。props: タイルに入れる属性（地図の色分け・クリックで使うものだけ）
+    layers:
+      mainline:                # 元は 100 m ごと
+        min_zoom: 0
+        lod: [[5, 256], [6, 128], [7, 64], [8, 32], [9, 16], [10, 8], [11, 4]]
+        props: [direction, grade, z, curvature, maxspeed, lanes, low_conf]
+      ramps:                   # 元は約 20 m ごと（ランプ 1 本は数十要素）
+        min_zoom: 8
+        lod: [[9, 64], [10, 16], [11, 8], [12, 4]]
+        props: [ramp_id, flow, grade, z, curvature, quality, lanes, maxspeed, shape_class, length_m, low_conf]
+      general: {min_zoom: 10, props: []}
+      structures: {min_zoom: 11, props: [kind]}
+    round: {grade: 1, z: 0, curvature: 6, length_m: 0}   # タイルの数値の小数桁（色分けに十分な精度。値の種類が減りタイルが小さくなる）
+list:                      # 一覧画面（Web UI）
+  page_size: 100           # 1 ページの件数（サーバー側でページ分割・並べ替え・検索する）
+  search_delay_ms: 300     # 検索語の入力が止まってから検索するまでの待ち時間
+

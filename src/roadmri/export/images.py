@@ -96,7 +96,7 @@ def color_for(metric: str, props: dict[str, Any], layer: str, zrange: tuple[floa
 def load_display(
     store: Store, bbox: tuple[float, float, float, float] | None, layers: list[str] | None = None
 ) -> pd.DataFrame:
-    sql = "SELECT layer, feature_id, props, geom FROM display_feature WHERE TRUE"
+    sql = "SELECT layer, feature_id, props, geom FROM display_feature WHERE coalesce(lod, 1) = 1"
     params: list[Any] = []
     if bbox:
         sql += " AND maxx >= ? AND minx <= ? AND maxy >= ? AND miny <= ?"

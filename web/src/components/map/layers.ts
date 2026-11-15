@@ -9,17 +9,21 @@ import {
 
 export const DATA_LAYERS = ["mainline", "ramps", "general", "facilities", "tolls", "structures"] as const;
 export type DataLayer = (typeof DATA_LAYERS)[number];
+/** ベクタタイルで表示範囲だけ取得する道路のレイヤー（/api/tiles）。 */
+export const TILE_LAYERS = ["mainline", "ramps", "general", "structures"] as const;
+/** 件数が少なく、全件を GeoJSON で持つレイヤー。 */
+export const GEOJSON_LAYERS = ["facilities", "tolls"] as const;
 
 const cache = new Map<string, Promise<FeatureCollection>>();
 
-/** 表示用ベクタ（FlatGeobuf）を取得して GeoJSON に変換する。 */
-export function loadLayer(name: DataLayer, runId = ""): Promise<FeatureCollection> {
-  const key = `${name}:${runId}`;
+/** 表示用ベクタ（FlatGeobuf）を取得して GeoJSON に変換する。lod は低ズーム用のまとめ数（1 は元の要素）。 */
+export function loadLayer(name: DataLayer, runId = "", lod = 1): Promise<FeatureCollection> {
+  const key = `${name}:${runId}:${lod}`;
   if (!cache.has(key)) {
     cache.set(
       key,
       api
-        .bytes(`/layers/${name}.fgb`)
+        .bytes(`/layers/${name}.fgb${lod > 1 ? `?lod=${lod}` : ""}`)
         .then((bytes) => (bytes.length ? (deserialize(bytes) as unknown as FeatureCollection) : { type: "FeatureCollection", features: [] }))
         .catch((e) => {
           cache.delete(key);
@@ -66,6 +70,8 @@ const GLOW: [number, number, number][] = [
   [3, 0.22, 0],
   [1.2, 1.0, 0],
 ];
+/** 発光の重ね描き（GLOW の先頭 2 段）。最後の 1 段が本体の線。 */
+export const GLOW_LEVELS = GLOW.length - 1;
 
 export interface StyleOpts {
   metric: string;
@@ -75,12 +81,28 @@ export interface StyleOpts {
   shapes: string[];
 }
 
-export function lineLayers(src: "mainline" | "ramps", o: StyleOpts): any[] {
-  const color = lineColor(o.metric, src, o.zr, o.shapes);
-  const scale = src === "ramps" && o.widthByCurvature
+function widthScale(src: "mainline" | "ramps", o: StyleOpts): any {
+  return src === "ramps" && o.widthByCurvature
     ? ["interpolate", ["linear"], ["abs", ["coalesce", ["get", "curvature"], 0]], 0, 1, 0.005, 1.5, 0.02, 3]
     : 1;
-  const glows = o.glow ? GLOW : [GLOW[2]];
+}
+
+/** 線レイヤーの段 i（0〜2）の色と太さ。作成時と、指標・太さの切替時（setPaintProperty）の両方で使う。 */
+export function linePaint(src: "mainline" | "ramps", i: number, o: StyleOpts): { color: any; width: any } {
+  const scale = widthScale(src, o);
+  const w = GLOW[i][0];
+  return { color: lineColor(o.metric, src, o.zr, o.shapes), width: scale === 1 ? w : ["*", w, scale] };
+}
+
+/** 本線・ランプの線レイヤー（変種 × 3 段）の ID。 */
+export function lineLayerIds(src: "mainline" | "ramps"): { id: string; level: number }[] {
+  const vks = src === "mainline" ? ["lo", "hi"] : ["all"];
+  return vks.flatMap((vk) => GLOW.map((_, i) => ({ id: `${src}-${vk}-${i}`, level: i })));
+}
+
+/** 本線・ランプの線レイヤー。発光の段（0, 1）は glowMinZoom 未満では描かない（広域の描画負荷を抑える）。
+ * 指標・発光・太さの切替はレイヤーを作り直さず、linePaint と表示切替で更新する。 */
+export function lineLayers(src: "mainline" | "ramps", o: StyleOpts, glowMinZoom: number): any[] {
   const out: any[] = [];
   const variants: [string, any, number | undefined, number | undefined][] =
     src === "mainline"
@@ -91,23 +113,19 @@ export function lineLayers(src: "mainline" | "ramps", o: StyleOpts): any[] {
         ]
       : [["all", true, undefined, undefined]];
   for (const [vk, filter, minzoom, maxzoom] of variants) {
-    glows.forEach(([w, op, blur], i) => {
+    GLOW.forEach(([, op, blur], i) => {
+      const paint = linePaint(src, i, o);
       const lyr: any = {
         id: `${src}-${vk}-${i}`,
         type: "line",
         source: src,
         filter,
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": color,
-          "line-width": ["*", w, scale] as any,
-          "line-opacity": op,
-          "line-blur": blur,
-        },
+        paint: { "line-color": paint.color, "line-width": paint.width, "line-opacity": op, "line-blur": blur },
       };
-      if (minzoom != null) lyr.minzoom = minzoom;
+      const minz = i < GLOW_LEVELS ? Math.max(minzoom ?? 0, glowMinZoom) : minzoom;
+      if (minz != null && minz > 0) lyr.minzoom = minz;
       if (maxzoom != null) lyr.maxzoom = maxzoom;
-      if (scale === 1) lyr.paint["line-width"] = w;
       out.push(lyr);
     });
   }
@@ -115,6 +133,27 @@ export function lineLayers(src: "mainline" | "ramps", o: StyleOpts): any[] {
 }
 
 export const FAC_COLORS: Record<string, string> = { IC: "#ffb53d", SIC: "#ffb53d", JCT: "#a98bff", SA: "#47e08f", PA: "#47e08f" };
+
+/** 品質「低」・要確認の施設の印（以前は施設ごとの HTML 要素。GPU で描く円の輪に置き換え）。 */
+export const WARNING_FILTER: any = ["any",
+  ["in", ["get", "quality"], ["literal", ["low", "unusable"]]],
+  ["==", ["get", "review_status"], "needs_review"]];
+
+export function warningLayer(): any {
+  return {
+    id: "fac-warn",
+    type: "circle",
+    source: "facilities",
+    filter: WARNING_FILTER,
+    paint: {
+      "circle-radius": 6.5,
+      "circle-color": "rgba(0,0,0,0)",
+      "circle-stroke-width": 1.6,
+      "circle-stroke-color": ["case", ["in", ["get", "quality"], ["literal", ["low", "unusable"]]], "#ff5b4f", "#ffb53d"],
+      "circle-translate": [9, -9],
+    },
+  };
+}
 
 export function facilityLayers(): any[] {
   const color = matchExpression("facility_type", FAC_COLORS, "#ffb53d");
