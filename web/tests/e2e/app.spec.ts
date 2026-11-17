@@ -303,6 +303,28 @@ test("16. 加速車線一覧：自動・手動・差・信頼度・確認状態�
   }
 });
 
+test("17. 道路MRIビュー：種類のチェックで名称も消える、最小ズーム未満のレイヤーは条件を表示、ランプ情報に加速車線長", async ({ page }) => {
+  const f = await facility(page, "宇都宮");
+  await page.goto("/mri");
+  await page.waitForFunction(() => (window as any).__roadmriMaps?.["mri-map"]?.loaded());
+  await page.evaluate(([lon, lat]) => (window as any).__roadmriMaps["mri-map"].jumpTo({ center: [lon, lat], zoom: 14 }), [f.lon, f.lat]);
+  await expect(page.locator(".maplabel", { hasText: "宇都宮IC" })).toHaveCount(1);
+  await page.getByTestId("layer-ic").locator("input").uncheck();
+  await expect(page.locator(".maplabel", { hasText: "宇都宮IC" })).toHaveCount(0);
+  await page.getByTestId("layer-ic").locator("input").check();
+  await expect(page.locator(".maplabel", { hasText: "宇都宮IC" })).toHaveCount(1);
+  // 広域（ズーム 9）では一般道・橋梁は表示されないので、条件を示す
+  await page.evaluate(() => (window as any).__roadmriMaps["mri-map"].zoomTo(9, { duration: 0 }));
+  await expect(page.getByTestId("layer-general")).toContainText("ズーム10以上");
+  await expect(page.getByTestId("layer-bridges")).toContainText("ズーム11以上");
+  await expect(page.getByTestId("layer-mainline")).not.toContainText("ズーム");
+  await expect(page.getByTestId("layer-target")).toContainText("（0）");
+  // ランプ情報に加速車線長
+  const ramp = (await api(page, `/facilities/${f.facility_id}`)).ramps.find((r: any) => r.accel_lane_status === "measured");
+  await page.goto(`/mri?kind=ramp&sel=${ramp.ramp_id}`);
+  await expect(page.getByTestId("mri-accel")).toContainText(`${Math.round(ramp.accel_lane_len_m)} m`);
+});
+
 test("オフライン：外部（CDN 等）へのリクエストが 0 件", async ({ page }) => {
   for (const p of ["/region", "/mri", "/facilities", "/sections", "/search", "/stats", "/compare", "/accel"]) {
     await page.goto(p);

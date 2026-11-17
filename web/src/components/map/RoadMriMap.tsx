@@ -311,14 +311,17 @@ export default function RoadMriMap(p: Props) {
 
   // 名称（HTML 要素。オフラインでフォントグリフを使わないため）。表示範囲内のものだけ、上限件数まで作る
   // （以前は全施設分を作っていたため、広域データでは数千個の要素を毎フレーム動かしていた）
-  const labelState = useRef({ data: data.facilities, on: false, cfg });
-  labelState.current = { data: data.facilities, on: L.visible.labels && (p.showLabels ?? true), cfg };
+  // 施設の種類のチェック（IC・JCT・SA/PA）を外した施設は、記号と同じく名称も出さない
+  const typeOn = (ft: unknown) =>
+    ft === "IC" || ft === "SIC" ? L.visible.ic : ft === "JCT" ? L.visible.jct : ft === "SA" || ft === "PA" ? L.visible.sapa : false;
+  const labelState = useRef({ data: data.facilities, on: false, cfg, typeOn });
+  labelState.current = { data: data.facilities, on: L.visible.labels && (p.showLabels ?? true), cfg, typeOn };
   useEffect(() => {
     const m = mapRef.current;
     if (!m || !ready) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const update = () => {
-      const { data: fc, on, cfg: c } = labelState.current;
+      const { data: fc, on, cfg: c, typeOn: shown } = labelState.current;
       markers.current.forEach((x) => x.remove());
       markers.current = [];
       if (!on || !fc || !c) return;
@@ -328,7 +331,8 @@ export default function RoadMriMap(p: Props) {
       const center = m.getCenter();
       const cand = (fc.features as Feature[])
         .map((f) => ({ pr: f.properties ?? {}, ll: (f.geometry as any).coordinates as [number, number] }))
-        .filter(({ pr, ll }) => b.contains(ll) && z >= (pr.facility_type === "JCT" ? c.jct_label_min_zoom : c.label_min_zoom))
+        .filter(({ pr, ll }) => shown(pr.facility_type) && b.contains(ll)
+          && z >= (pr.facility_type === "JCT" ? c.jct_label_min_zoom : c.label_min_zoom))
         .sort((x, y) => Math.hypot(x.ll[0] - center.lng, x.ll[1] - center.lat) - Math.hypot(y.ll[0] - center.lng, y.ll[1] - center.lat))
         .slice(0, c.label_max_count);
       for (const { pr, ll } of cand) {
@@ -349,7 +353,7 @@ export default function RoadMriMap(p: Props) {
       clearTimeout(timer);
       m.off("moveend", later);
     };
-  }, [ready, data.facilities, L.visible.labels, p.showLabels, cfg]);
+  }, [ready, data.facilities, L.visible.labels, L.visible.ic, L.visible.jct, L.visible.sapa, p.showLabels, cfg]);
 
   // 表示範囲（要約の範囲を使う。国が複数あるときは指定の国、なければ最初の国）
   useEffect(() => {
