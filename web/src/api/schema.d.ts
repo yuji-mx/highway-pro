@@ -382,6 +382,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/accel_lanes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Accel Lanes */
+        get: operations["list_accel_lanes_api_accel_lanes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accel_lanes/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Accel Lanes Summary
+         * @description 件数（自動の判定・確認状態）、手動と自動の差の要約（全体・信頼度別・判定方法別）、判定の食い違い。
+         */
+        get: operations["accel_lanes_summary_api_accel_lanes_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accel_lanes.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Accel Lanes Csv
+         * @description 一覧と同じ条件の全件（UTF-8 BOM 付き、Excel で開ける）。長さは m（表示単位に関係なく）。
+         */
+        get: operations["accel_lanes_csv_api_accel_lanes_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sections": {
         parameters: {
             query?: never;
@@ -1900,6 +1957,135 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_accel_lanes_api_accel_lanes_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+                q?: string | null;
+                country?: string | null;
+                flow?: string | null;
+                auto_status?: string | null;
+                reason?: string | null;
+                method?: string | null;
+                confidence?: string | null;
+                review?: string | null;
+                min_abs_diff_m?: number | null;
+                sort?: string;
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accel_lanes_summary_api_accel_lanes_summary_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                country?: string | null;
+                flow?: string | null;
+                auto_status?: string | null;
+                reason?: string | null;
+                method?: string | null;
+                confidence?: string | null;
+                review?: string | null;
+                min_abs_diff_m?: number | null;
+                sort?: string;
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accel_lanes_csv_api_accel_lanes_csv_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                country?: string | null;
+                flow?: string | null;
+                auto_status?: string | null;
+                reason?: string | null;
+                method?: string | null;
+                confidence?: string | null;
+                review?: string | null;
+                min_abs_diff_m?: number | null;
+                sort?: string;
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
