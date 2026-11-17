@@ -506,3 +506,81 @@ def test_imagery_tiles_served_from_cache_and_offline(client, monkeypatch):
     assert client.get("/api/imagery/unknown/1/0/0").status_code == 404
     assert client.get("/api/imagery/usgs_imagery/17/0/0").status_code == 404  # 最大ズームより上
     assert client.get("/api/imagery/gsi_seamless/2/9/0").status_code == 404
+
+
+def test_accel_lane_list_summary_and_csv(client):
+    """加速車線一覧（ADR-0018）：自動・手動・差・信頼度・確認状態の比較、要約（偏り・ばらつき）、CSV。"""
+    store = client.state.store
+    rids = list(
+        store.df("SELECT ramp_id FROM ramp WHERE accel_lane_status='measured' ORDER BY ramp_id LIMIT 3")[
+            "ramp_id"
+        ]
+    )
+    excluded = _accel_ramp(client, "excluded")
+    edits = []
+    # 1 本目：自動値どおり、2 本目：下流の本線まで延ばして修正、3 本目：加速車線ではない、除外の 1 本：手動で測定
+    edits.append(client.post(f"/api/ramps/{rids[0]}/accel_lane", json={"action": "confirmed"}).json())
+    g = client.get(f"/api/ramps/{rids[1]}/accel_lane").json()
+    far = g["path"]["coordinates"][-1]
+    edits.append(
+        client.post(
+            f"/api/ramps/{rids[1]}/accel_lane",
+            json={"action": "corrected", "start": g["auto"]["start"], "end": far},
+        ).json()
+    )
+    edits.append(client.post(f"/api/ramps/{rids[2]}/accel_lane", json={"action": "not_accel_lane"}).json())
+    ge = client.get(f"/api/ramps/{excluded}/accel_lane").json()
+    if ge["path"] and len(ge["path"]["coordinates"]) > 2:
+        cs = ge["path"]["coordinates"]
+        r = client.post(
+            f"/api/ramps/{excluded}/accel_lane", json={"action": "corrected", "start": cs[-3], "end": cs[-1]}
+        )
+        if r.status_code == 201:
+            edits.append(r.json())
+    try:
+        total = store.scalar("SELECT count(*) FROM ramp WHERE accel_lane_status IS NOT NULL")
+        lst = client.get("/api/accel_lanes?limit=500").json()
+        assert lst["total"] == total == len(lst["items"])
+        row = next(x for x in lst["items"] if x["ramp_id"] == rids[1])
+        assert row["review_status"] == "corrected" and row["diff_m"] == pytest.approx(
+            row["manual_len_m"] - row["auto_len_m"]
+        )
+        assert row["auto_confidence"] in {"high", "medium", "low"} and row["facility_name"]
+        unrev = next(x for x in lst["items"] if x["review_status"] == "unreviewed")
+        assert (
+            unrev["manual_at"] is None and unrev["manual_len_m"] is None
+        )  # 空の日時は null（"NaT" にしない）
+        # 絞り込み・並べ替え
+        rev = client.get("/api/accel_lanes?review=reviewed").json()
+        assert rev["total"] == len(edits)
+        assert client.get("/api/accel_lanes?review=unreviewed").json()["total"] == total - len(edits)
+        assert client.get("/api/accel_lanes?review=not_accel_lane").json()["items"][0]["ramp_id"] == rids[2]
+        big = client.get("/api/accel_lanes?min_abs_diff_m=1").json()["items"]
+        assert [x["ramp_id"] for x in big] == [rids[1]] or rids[1] in [x["ramp_id"] for x in big]
+        srt = client.get("/api/accel_lanes?sort=diff_m&order=desc&limit=2").json()["items"]
+        assert srt[0]["ramp_id"] == rids[1]
+        assert client.get("/api/accel_lanes?sort=bogus").status_code == 422
+        assert client.get("/api/accel_lanes?review=bogus").status_code == 422
+        ex = client.get("/api/accel_lanes?auto_status=excluded").json()["items"]
+        assert ex and all(x["auto_reason_text"] for x in ex)
+        # 要約：差（手動−自動）の偏りとばらつき。確認（差 0）と修正（差 > 0）の 2 件
+        sm = client.get("/api/accel_lanes/summary").json()
+        d = sm["difference"]
+        assert d["n"] == 2 and d["bias_m"] > 0 and d["share_manual_longer"] == 0.5
+        assert d["mae_m"] == pytest.approx(row["diff_m"] / 2) and d["max_m"] == pytest.approx(row["diff_m"])
+        assert sum(v["n"] for v in sm["by_confidence"].values()) == 2
+        assert sm["by_review_status"]["confirmed"] == 1 and sm["by_review_status"]["not_accel_lane"] == 1
+        assert sm["auto_measured_but_not_accel_lane"] == 1
+        assert sm["auto_excluded_but_manual_measured"] == (1 if len(edits) == 4 else 0)
+        assert {p["ramp_id"] for p in sm["points"]} == {rids[0], rids[1]}
+        assert client.get("/api/accel_lanes/summary?review=unreviewed").json()["difference"] == {"n": 0}
+        # CSV：同じ条件の全件、m 単位、BOM 付き
+        csv = client.get("/api/accel_lanes.csv?review=reviewed")
+        assert csv.status_code == 200 and csv.content.startswith("﻿".encode())
+        lines = csv.content.decode("utf-8-sig").strip().splitlines()
+        assert lines[0].startswith("ランプID,施設ID,施設名") and "差_手動-自動_m" in lines[0]
+        assert len(lines) == 1 + len(edits)
+    finally:
+        for e in edits:
+            client.post(f"/api/edits/{e['manual']['edit_id']}/revert")
+    assert client.get("/api/accel_lanes?review=reviewed").json()["total"] == 0

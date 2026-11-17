@@ -3,6 +3,9 @@
   list([
     'DELETE /api/saved-queries/{query_id}',
     'DELETE /api/saved-ranges/{range_id}',
+    'GET /api/accel_lanes',
+    'GET /api/accel_lanes.csv',
+    'GET /api/accel_lanes/summary',
     'GET /api/changes',
     'GET /api/edits',
     'GET /api/facilities',

@@ -10,6 +10,7 @@
   "nav.search": "条件検索",
   "nav.stats": "範囲統計比較",
   "nav.compare": "比較・出力",
+  "nav.accel": "加速車線一覧",
   "common.loading": "読込中…",
   "common.empty": "該当するデータがありません。条件を緩めてください。",
   "common.error": "データの取得に失敗しました",

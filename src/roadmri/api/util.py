@@ -53,10 +53,10 @@ def py(v: Any) -> Any:
         return [py(x) for x in v]
     if isinstance(v, dict):
         return {str(k): py(x) for k, x in v.items()}
+    if v is pd.NaT:  # NaT は datetime の一種なので先に判定する（isoformat() が "NaT" になる）
+        return None
     if isinstance(v, (datetime, date, pd.Timestamp)):
         return v.isoformat()
-    if v is pd.NaT:
-        return None
     return v
 
 

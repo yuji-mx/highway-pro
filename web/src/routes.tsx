@@ -10,6 +10,7 @@ export const NAV = [
   { no: "07", path: "/search", key: "nav.search" },
   { no: "08", path: "/stats", key: "nav.stats" },
   { no: "09", path: "/compare", key: "nav.compare" },
+  { no: "10", path: "/accel", key: "nav.accel" },
 ];
 
 export const Region = lazy(() => import("./pages/Region"));
@@ -21,3 +22,4 @@ export const Sections = lazy(() => import("./pages/Sections"));
 export const Search = lazy(() => import("./pages/Search"));
 export const RangeStats = lazy(() => import("./pages/RangeStats"));
 export const CompareExport = lazy(() => import("./pages/CompareExport"));
+export const AccelList = lazy(() => import("./pages/AccelList"));

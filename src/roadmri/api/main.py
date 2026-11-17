@@ -15,6 +15,7 @@ from roadmri.analysis.ranges import RangeError
 from roadmri.api.deps import AppState
 from roadmri.api.routers import (
     accel,
+    accel_list,
     changes,
     compare,
     edits,
@@ -70,6 +71,7 @@ def create_app(cfg: Config | None = None, store: Store | None = None) -> FastAPI
         facilities,
         ramps,
         accel,
+        accel_list,
         sections,
         search,
         similar,

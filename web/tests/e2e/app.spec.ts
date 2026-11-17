@@ -265,8 +265,46 @@ test("15. 加速車線を地図で修正：手動の値は自動の値と別に�
   await page.getByTestId("accel-aerial").click();
 });
 
+test("16. 加速車線一覧：自動・手動・差・信頼度・確認状態を比較し、要約と CSV を出す", async ({ page }) => {
+  const list = await api(page, "/accel_lanes?auto_status=measured&limit=50");
+  const [r1, r2] = list.items;
+  const edits: string[] = [];
+  edits.push((await api(page, `/ramps/${r1.ramp_id}/accel_lane`, { action: "confirmed" })).manual.edit_id);
+  const g = await api(page, `/ramps/${r2.ramp_id}/accel_lane`);
+  const end = g.path.coordinates[g.path.coordinates.length - 1];
+  edits.push((await api(page, `/ramps/${r2.ramp_id}/accel_lane`, { action: "corrected", start: g.auto.start, end, comment: "e2e" })).manual.edit_id);
+  try {
+    await page.goto("/mri");
+    await page.getByTestId("nav-10").click();
+    await expect(page).toHaveURL(/\/accel/);
+    const table = page.getByTestId("accel-table");
+    await expect(table.locator("tbody tr").first()).toBeVisible();
+    await expect(page.getByTestId("accel-reviewed-count")).toHaveText("2");
+    // 全体の行：件数 2、偏りは正（修正で延ばした分）
+    const overall = page.getByTestId("accel-stats").locator("tbody tr").first();
+    await expect(overall.locator("td").nth(1)).toHaveText("2");
+    await expect(overall.locator("td").nth(2)).toContainText("+");
+    await expect(page.getByTestId("accel-scatter")).toBeVisible();
+    await page.getByTestId("accel-filter-review").selectOption("reviewed");
+    await expect(table.locator("tbody tr")).toHaveCount(2);
+    await expect(table).toContainText("自動値どおり");
+    await expect(table).toContainText("修正");
+    await table.locator("th", { hasText: "差（手動−自動）" }).click();
+    await expect(page).toHaveURL(/sort=diff_m/);
+    const csv = await page.request.get((await page.getByTestId("accel-csv").getAttribute("href"))!);
+    const lines = (await csv.text()).replace(/^\uFEFF/, "").trim().split("\n");
+    expect(lines[0]).toContain("差_手動-自動_m");
+    expect(lines.length - 1).toBe(2);
+    await table.locator("tbody tr").first().click();
+    await expect(page).toHaveURL(/\/ramp\//);
+    await expect(page.getByTestId("accel-panel")).toBeVisible();
+  } finally {
+    for (const e of edits) await api(page, `/edits/${e}/revert`, {});
+  }
+});
+
 test("オフライン：外部（CDN 等）へのリクエストが 0 件", async ({ page }) => {
-  for (const p of ["/region", "/mri", "/facilities", "/sections", "/search", "/stats", "/compare"]) {
+  for (const p of ["/region", "/mri", "/facilities", "/sections", "/search", "/stats", "/compare", "/accel"]) {
     await page.goto(p);
     await page.waitForLoadState("networkidle");
   }
