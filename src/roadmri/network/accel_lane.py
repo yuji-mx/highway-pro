@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
+from shapely.ops import substring
 
 # 除外理由（コード → 説明）。画面・CSV に出す
 REASONS: dict[str, str] = {
@@ -209,4 +210,50 @@ def measure(
         float(par),
         float(added),
         notes,
+    )
+
+
+# ---- 手動での確認・修正（ADR-0017） ------------------------------------------------------
+
+
+def lane_path(g: Any, ramp_xy: np.ndarray, merge_node: int, search_m: float) -> np.ndarray:
+    """加速車線を測る道筋：ランプ全体と、合流ノードから下流の本線（search_m まで）をつないだ線（投影座標）。
+
+    自動の終点は OSM でランプが本線に接続する点になりやすいが、実際の加速車線はその先まで続くことがあるので、
+    手動の終点は本線上にも置けるようにする。
+    """
+    down = _main_edges(g, merge_node, None, upstream=False)
+    route = down[0][2].get("route_ref") if down else None
+    parts = [np.asarray(ramp_xy, dtype=float)]
+    for _, _, d in _walk(g, merge_node, route, upstream=False, limit=search_m):
+        parts.append(np.asarray(d["xy"], dtype=float)[1:])
+    return np.vstack(parts)
+
+
+@dataclass
+class Span:
+    length_m: float
+    start_xy: tuple[float, float]  # 道筋上に寄せた点
+    end_xy: tuple[float, float]
+    start_offset_m: float  # 指定した点と道筋の距離
+    end_offset_m: float
+    path_xy: np.ndarray  # 始点〜終点の道筋
+
+
+def measure_between(path_xy: np.ndarray, start_xy: tuple[float, float], end_xy: tuple[float, float]) -> Span:
+    """道筋上の 2 点の間の長さ（指定した点は道筋に寄せる）。終点が始点より手前なら ValueError。"""
+    line = LineString(path_xy)
+    a, b = Point(start_xy), Point(end_xy)
+    sa, sb = float(line.project(a)), float(line.project(b))
+    if sb <= sa:
+        raise ValueError("終点が始点より手前（上流）にあります。合流の進行方向に沿って指定してください")
+    pa, pb = line.interpolate(sa), line.interpolate(sb)
+    sub = substring(line, sa, sb)
+    return Span(
+        sb - sa,
+        (float(pa.x), float(pa.y)),
+        (float(pb.x), float(pb.y)),
+        float(a.distance(pa)),
+        float(b.distance(pb)),
+        np.asarray(sub.coords, dtype=float),
     )

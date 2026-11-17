@@ -397,3 +397,112 @@ def test_response_times(client):
 def test_problem_details_for_unknown_api(client):
     r = client.get("/api/does-not-exist")
     assert r.status_code == 404
+
+
+def _accel_ramp(client, status="measured"):
+    return client.state.store.scalar(
+        "SELECT ramp_id FROM ramp WHERE accel_lane_status=? ORDER BY ramp_id LIMIT 1", [status]
+    )
+
+
+def test_accel_lane_review_keeps_auto_value_separate(client):
+    """加速車線の確認・修正（ADR-0017）：手動の値は別に保存され、自動の値は変わらない。取り消しで前の状態に戻る。"""
+    store = client.state.store
+    rid = _accel_ramp(client)
+    auto_cols = (
+        "accel_lane_len_m, accel_lane_status, accel_start_lon, accel_start_lat, accel_end_lon, accel_end_lat"
+    )
+    before = store.one(f"SELECT {auto_cols} FROM ramp WHERE ramp_id=?", [rid])
+    g = client.get(f"/api/ramps/{rid}/accel_lane").json()
+    assert g["auto"]["status"] == "measured" and g["manual"] is None and g["difference_m"] is None
+    assert g["path"]["type"] == "LineString" and g["auto_span"]["type"] == "LineString"
+    auto_len = g["auto"]["length_m"]
+    # 実際の加速車線は自動の終点より先まで続くことがある：終点を道筋（下流の本線）の先に置く
+    far = g["path"]["coordinates"][-1]
+    m = client.post(
+        f"/api/ramps/{rid}/accel_lane/measure", json={"start": g["auto"]["start"], "end": far}
+    ).json()
+    assert m["length_m"] > auto_len and not m["warnings"]
+    r1 = client.post(
+        f"/api/ramps/{rid}/accel_lane",
+        json={"action": "corrected", "start": g["auto"]["start"], "end": far, "comment": "航空写真で確認"},
+    )
+    assert r1.status_code == 201
+    j = r1.json()
+    assert j["manual"]["status"] == "corrected" and j["manual"]["length_m"] == pytest.approx(m["length_m"])
+    assert j["manual"]["note"] == "航空写真で確認" and j["manual_span"]["type"] == "LineString"
+    assert j["auto"]["length_m"] == auto_len and j["difference_m"] == pytest.approx(m["length_m"] - auto_len)
+    assert store.one(f"SELECT {auto_cols} FROM ramp WHERE ramp_id=?", [rid]) == before
+    # 自動値どおりと確認 → 手動の値＝自動の値
+    j2 = client.post(f"/api/ramps/{rid}/accel_lane", json={"action": "confirmed"}).json()
+    assert j2["manual"]["status"] == "confirmed" and j2["manual"]["length_m"] == auto_len
+    assert j2["difference_m"] == 0
+    # 履歴（追記専用）には 2 件。確認を取り消すと修正に戻り、修正も取り消すと手動の値は空
+    assert [h["new_value"]["action"] for h in j2["history"]] == ["corrected", "confirmed"]
+    assert j2["history"][0]["new_value"]["auto_length_m"] == auto_len
+    client.post(f"/api/edits/{j2['manual']['edit_id']}/revert")
+    j3 = client.get(f"/api/ramps/{rid}/accel_lane").json()
+    assert j3["manual"]["status"] == "corrected"
+    client.post(f"/api/edits/{j3['manual']['edit_id']}/revert")
+    assert client.get(f"/api/ramps/{rid}/accel_lane").json()["manual"] is None
+    assert store.one(f"SELECT {auto_cols} FROM ramp WHERE ramp_id=?", [rid]) == before
+    # 加速車線ではない（自動では測定されていても、利用者の判断として別に残す）
+    j4 = client.post(
+        f"/api/ramps/{rid}/accel_lane", json={"action": "not_accel_lane", "comment": "車線追加"}
+    ).json()
+    assert j4["manual"]["status"] == "not_accel_lane" and j4["manual"]["length_m"] is None
+    assert j4["auto"]["length_m"] == auto_len
+    client.post(f"/api/edits/{j4['manual']['edit_id']}/revert")
+
+
+def test_accel_lane_review_errors(client):
+    rid = _accel_ramp(client)
+    g = client.get(f"/api/ramps/{rid}/accel_lane").json()
+    s, e = g["auto"]["start"], g["auto"]["end"]
+    # 終点が始点より手前、修正に点がない、道筋から遠い点
+    assert client.post(f"/api/ramps/{rid}/accel_lane/measure", json={"start": e, "end": s}).status_code == 422
+    assert client.post(f"/api/ramps/{rid}/accel_lane", json={"action": "corrected"}).status_code == 422
+    last = g["path"]["coordinates"][-1]
+    far = [last[0] + 0.0012, last[1]]  # 下流の本線の先から約 100 m 横にずれた点
+    w = client.post(f"/api/ramps/{rid}/accel_lane/measure", json={"start": s, "end": far}).json()
+    assert w["warnings"]
+    assert (
+        client.post(
+            f"/api/ramps/{rid}/accel_lane", json={"action": "corrected", "start": s, "end": far}
+        ).status_code
+        == 422
+    )
+    # 汎用の修正 API では受け付けない、対象外・存在しないランプ
+    body = {"target_type": "ramp", "target_id": rid, "field": "accel_lane", "new_value": {}}
+    assert client.post("/api/edits", json=body).status_code == 422
+    other = client.state.store.scalar("SELECT ramp_id FROM ramp WHERE accel_lane_status IS NULL LIMIT 1")
+    assert client.get(f"/api/ramps/{other}/accel_lane").status_code == 422
+    assert client.get("/api/ramps/NOPE/accel_lane").status_code == 404
+    # 自動で測定できていないものは「確認」できない
+    ex = _accel_ramp(client, "excluded")
+    assert client.post(f"/api/ramps/{ex}/accel_lane", json={"action": "confirmed"}).status_code == 422
+
+
+def test_imagery_tiles_served_from_cache_and_offline(client, monkeypatch):
+    """航空写真（ADR-0017）：保存済みのタイルを返す。オフラインで未保存なら 404。取得元の URL は画面に渡さない。"""
+    from roadmri.api.routers import imagery
+
+    monkeypatch.setenv("ROADMRI_OFFLINE", "1")
+    monkeypatch.setattr(imagery, "_client", {})
+    meta = client.get("/api/meta").json()["imagery"]
+    assert {m["id"] for m in meta} == {"gsi_seamless", "usgs_imagery"} and all("url" not in m for m in meta)
+    assert all(m["attribution"] and len(m["bounds"]) == 4 for m in meta)
+    cache = client.state.cfg.path("cache_dir") / "imagery" / "gsi_seamless" / "16" / "58212" / "25766.img"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(b"\xff\xd8\xff\xe0" + b"0" * 100)
+    r = client.get("/api/imagery/gsi_seamless/16/58212/25766")
+    assert (
+        r.status_code == 200
+        and r.headers["content-type"] == "image/jpeg"
+        and "max-age" in r.headers["cache-control"]
+    )
+    miss = client.get("/api/imagery/gsi_seamless/16/58212/25767")
+    assert miss.status_code == 404 and "オフライン" in miss.json()["detail"]
+    assert client.get("/api/imagery/unknown/1/0/0").status_code == 404
+    assert client.get("/api/imagery/usgs_imagery/17/0/0").status_code == 404  # 最大ズームより上
+    assert client.get("/api/imagery/gsi_seamless/2/9/0").status_code == 404

@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import type { Map as MlMap } from "maplibre-gl";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import CurvatureChart from "../components/charts/CurvatureChart";
 import ProfileChart, { type Marker } from "../components/charts/ProfileChart";
 import { DIFF_COLORS, DIFF_LABELS, ErrorBox, Kpi, QualityBadge, Skeleton, fmt } from "../components/common/ui";
-import RoadMriMap from "../components/map/RoadMriMap";
+import AccelLanePanel from "../components/accel/AccelLanePanel";
+import RoadMriMap, { type Overlay } from "../components/map/RoadMriMap";
 import SimilarRamps from "../components/similar/SimilarRamps";
 import { t } from "../i18n";
 import { useCompareTray, useSimilar } from "../state/stores";
@@ -15,6 +17,12 @@ export default function RampDetail() {
   const nav = useNavigate();
   const [win, setWin] = useState<number | null>(null);
   const [showSim, setShowSim] = useState(false);
+  // 加速車線の確認・修正（地図での始点・終点の指定と重ね描き、合流部への拡大）
+  const [map, setMap] = useState<MlMap | null>(null);
+  const [overlays, setOverlays] = useState<Overlay[]>([]);
+  const [accelFocus, setAccelFocus] = useState<[number, number, number, number] | null>(null);
+  const onOverlays = useCallback((o: Overlay[]) => setOverlays(o), []);
+  useEffect(() => setAccelFocus(null), [id]);
   const setSim = useSimilar((s) => s.setBase);
   const add = useCompareTray((s) => s.add);
   const q = useQuery({ queryKey: ["ramp", id], queryFn: () => api.get<any>(`/ramps/${id}`) });
@@ -69,7 +77,8 @@ export default function RampDetail() {
       </div>
       {showSim && <div className="card" style={{ marginTop: 12 }}><h3>類似ランプ</h3><SimilarRamps rampId={id} /></div>}
       <div className="grid2" style={{ marginTop: 12 }}>
-        <RoadMriMap height={460} focus={focus} selectedRampId={id} selectedFacilityId={r.facility_id} testId="ramp-map" />
+        <RoadMriMap height={460} focus={accelFocus ?? focus} selectedRampId={id} selectedFacilityId={r.facility_id} testId="ramp-map"
+          overlays={r.accel_lane_status ? overlays : undefined} onMap={setMap} />
         <div className="card">
           <div className="row"><h3 style={{ margin: 0 }}>標高・勾配プロファイル</h3>
             <span className="row" style={{ marginLeft: "auto" }}>窓幅
@@ -80,6 +89,11 @@ export default function RampDetail() {
           <div className="note">グラフにカーソルを置くと地図上に位置を表示します。灰色＝DEM 生値、色＝補正後（勾配で色分け）、帯＝橋梁・トンネル・DEM 低信頼区間。</div>
         </div>
       </div>
+      {r.accel_lane_status && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <AccelLanePanel rampId={id} map={map} onOverlays={onOverlays} onFocus={setAccelFocus} />
+        </div>
+      )}
       <div className="grid3" style={{ marginTop: 12 }}>
         <div className="card"><h3>属性</h3><table className="dt"><tbody>
           <tr><td>車線数</td><td className="num">{fmt(r.lanes)}</td></tr>

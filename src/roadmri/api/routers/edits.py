@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from roadmri.api.deps import AppState, state
 from roadmri.api.schemas.models import EditCreate, EditRevert
 from roadmri.api.util import record, records
-from roadmri.store.manual_edits import EDITABLE, add_edit, revert_edit
+from roadmri.store.manual_edits import ACCEL_FIELD, EDITABLE, add_edit, effective_edits, revert_edit
 
 router = APIRouter(tags=["edits"])
 
@@ -39,6 +39,10 @@ def list_edits(s: AppState = Depends(state)) -> list[dict[str, Any]]:
 
 @router.post("/edits", status_code=201)
 def create_edit(body: EditCreate, s: AppState = Depends(state)) -> dict[str, Any]:
+    if body.field == ACCEL_FIELD:
+        raise HTTPException(
+            422, "加速車線の確認・修正は POST /api/ramps/{ramp_id}/accel_lane を使ってください"
+        )
     row = add_edit(
         s.store, body.target_type, body.target_id, body.field, body.new_value, s.cfg.user_name, body.comment
     )
@@ -50,7 +54,19 @@ def create_edit(body: EditCreate, s: AppState = Depends(state)) -> dict[str, Any
 def revert(edit_id: str, body: EditRevert | None = None, s: AppState = Depends(state)) -> dict[str, Any]:
     row = revert_edit(s.store, edit_id, s.cfg.user_name, body.comment if body else None)
     orig = s.store.one("SELECT * FROM manual_edit WHERE edit_id=?", [edit_id])
-    if orig is not None:
+    if orig is not None and orig["field"] == ACCEL_FIELD:
+        # 取り消し後に有効な、同じランプの加速車線の修正（なければ手動の値は空。自動の値はそのまま）
+        from roadmri.api.routers.accel import apply_accel_manual
+
+        left = [
+            e
+            for e in effective_edits(s.store)
+            if e["field"] == ACCEL_FIELD
+            and e["target_type"] == "ramp"
+            and e["target_id"] == orig["target_id"]
+        ]
+        apply_accel_manual(s, orig["target_id"], left[-1] if left else None)
+    elif orig is not None:
         import json
 
         old = json.loads(orig["old_value"]) if isinstance(orig["old_value"], str) else orig["old_value"]

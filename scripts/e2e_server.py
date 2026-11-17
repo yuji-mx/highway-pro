@@ -5,6 +5,7 @@ uv run python scripts/e2e_server.py [port]
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 
@@ -16,6 +17,7 @@ from roadmri.pipeline import run_pipeline
 from roadmri.store.duckdb_store import Store
 
 if __name__ == "__main__":
+    os.environ["ROADMRI_OFFLINE"] = "1"  # 航空写真など外部への取得をしない（テストはオフラインで通す）
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8766
     region = sys.argv[2] if len(sys.argv) > 2 else "tochigi_small"
     base = load_config()

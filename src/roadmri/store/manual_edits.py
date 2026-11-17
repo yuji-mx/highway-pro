@@ -11,9 +11,25 @@ import pandas as pd
 from roadmri.provenance import new_ulid
 from roadmri.store.duckdb_store import Store
 
+# 加速車線の確認・修正（ADR-0017）。自動の値は上書きせず、ramp の accel_manual_* 列に反映する
+ACCEL_FIELD = "accel_lane"
+ACCEL_ACTIONS = ("confirmed", "corrected", "not_accel_lane")
+ACCEL_MANUAL_COLUMNS = (
+    "accel_manual_status",
+    "accel_manual_len_m",
+    "accel_manual_start_lon",
+    "accel_manual_start_lat",
+    "accel_manual_end_lon",
+    "accel_manual_end_lat",
+    "accel_manual_note",
+    "accel_manual_edit_id",
+    "accel_manual_user",
+    "accel_manual_at",
+)
+
 EDITABLE: dict[str, set[str]] = {
     "facility": {"shape_class", "facility_type", "review_status", "comment", "name", "excluded"},
-    "ramp": {"facility_id", "flow", "from_ref", "to_ref", "excluded"},
+    "ramp": {"facility_id", "flow", "from_ref", "to_ref", "excluded", ACCEL_FIELD},
     "section": {"excluded", "adopted_definition"},
 }
 REVERT_FIELD = "__revert__"
@@ -58,7 +74,42 @@ def anchor_for(store: Store, target_type: str, target_id: str) -> dict[str, Any]
     return {}
 
 
+def accel_manual_values(edit: dict[str, Any] | None) -> dict[str, Any]:
+    """accel_lane の修正 1 件を ramp の accel_manual_* 列の値にする（None なら全列を空に）。"""
+    if edit is None:
+        return dict.fromkeys(ACCEL_MANUAL_COLUMNS)
+    v = _loads(edit["new_value"]) or {}
+    start, end = v.get("start") or [None, None], v.get("end") or [None, None]
+    return {
+        "accel_manual_status": v.get("action"),
+        "accel_manual_len_m": v.get("length_m"),
+        "accel_manual_start_lon": start[0],
+        "accel_manual_start_lat": start[1],
+        "accel_manual_end_lon": end[0],
+        "accel_manual_end_lat": end[1],
+        "accel_manual_note": edit.get("comment"),
+        "accel_manual_edit_id": edit["edit_id"],
+        "accel_manual_user": edit.get("user_name"),
+        "accel_manual_at": edit.get("created_at"),
+    }
+
+
 def current_value(store: Store, target_type: str, target_id: str, field: str) -> Any:
+    if field == ACCEL_FIELD:  # 直前の手動の値（自動の値は別の列にあり、変わらない）
+        r = store.one(
+            "SELECT accel_manual_status AS action, accel_manual_len_m AS length_m, "
+            "accel_manual_start_lon, accel_manual_start_lat, accel_manual_end_lon, accel_manual_end_lat "
+            "FROM ramp WHERE ramp_id=?",
+            [target_id],
+        )
+        if not r or r["action"] is None:
+            return None
+        return {
+            "action": r["action"],
+            "length_m": r["length_m"],
+            "start": [r["accel_manual_start_lon"], r["accel_manual_start_lat"]],
+            "end": [r["accel_manual_end_lon"], r["accel_manual_end_lat"]],
+        }
     table = {"facility": "facility", "ramp": "ramp", "section": "section"}[target_type]
     key = f"{target_type}_id"
     col = "comment" if field == "comment" else field
@@ -245,6 +296,13 @@ def apply_edits(
                     df.at[i, field] = val
             elif field == "excluded":
                 df.loc[idx, "excluded"] = bool(val)
+            elif field == ACCEL_FIELD:
+                for col, cv in accel_manual_values(e).items():
+                    if col not in df.columns:
+                        df[col] = None
+                    df[col] = df[col].astype(object)
+                    for i in idx:
+                        df.at[i, col] = cv
         elif tt == "section":
             if field == "excluded":
                 df.loc[idx, "excluded"] = bool(val)
