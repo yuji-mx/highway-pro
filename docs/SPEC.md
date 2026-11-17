@@ -277,7 +277,7 @@
 
 #### 4.4.4 ランプ属性
 
-ランプ長、緯度経度列、方向、車線数、制限速度、曲率系（§4.6）、標高・勾配系（§4.7, §4.8）、構造物延長（トンネル／橋梁／高架）、加速車線長（流入ランプの合流点から本線の車線減少点まで。OSM で取れない場合は null）、合流直前 100 m の最大勾配、終端 100 m の平均勾配、OSM 品質、DEM 品質を保持する。項目の一覧は §9.3 を参照。
+ランプ長、緯度経度列、方向、車線数、制限速度、曲率系（§4.6）、標高・勾配系（§4.7, §4.8）、構造物延長（トンネル／橋梁／高架）、加速車線長（本線への合流〈流入・JCT 連絡路・SA/PA〉で、隔て部分が終わり車線境界が破線になる点から、加速車線が完全になくなる点〈テーパーの終わり〉まで。車線追加・次の出口へ続く付加車線など定義に合わないものは除外し理由を残す。ADR-0016）、合流直前 100 m の最大勾配、終端 100 m の平均勾配、OSM 品質、DEM 品質を保持する。項目の一覧は §9.3 を参照。
 
 ### 4.5 IC/JCT 間距離
 
@@ -591,7 +591,7 @@ c_R  = clamp((150 − minR) / 110, 0, 1)        # 曲率寄与
 c_G  = clamp(g100_up_max / 7, 0, 1)            # 上り勾配寄与
 c_L  = clamp(length / 1000, 0, 1)              # ランプ長寄与
 c_K  = clamp(curvature_rate_max / k_ref, 0, 1) # 曲率変化寄与
-c_M  = clamp((320 − accel_len) / 150, 0, 1)    # 合流条件寄与（流入のみ、null は 0 とし欠損フラグ）
+c_M  = clamp((320 − accel_len) / 150, 0, 1)    # 合流条件寄与（本線への合流〈difficulty.yaml の merge_flows〉のみ、null は 0 とし欠損フラグ）
 w = {R:0.30, G:0.30, L:0.15, K:0.10, M:0.15}  # config/difficulty.yaml
 ```
 
@@ -977,7 +977,10 @@ facility_id、osm_type（node/way）、osm_id、role（`junction_up`/`junction_d
 | z_max / z_min | DOUBLE | |
 | cont_up_len_m / cont_down_len_m | DOUBLE | |
 | tunnel_len_m / bridge_len_m / viaduct_len_m | DOUBLE | |
-| accel_lane_len_m | DOUBLE NULL | |
+| accel_lane_len_m | DOUBLE NULL | 測定できた合流だけ（ADR-0016） |
+| accel_lane_status / accel_lane_reason / accel_lane_method / accel_lane_confidence / accel_lane_notes | VARCHAR NULL | 判定結果・除外理由・方法・信頼度・注記 |
+| accel_parallel_m / accel_added_lane_m | DOUBLE NULL | 始点〜合流ノード（ランプ上）、合流ノード〜終点（本線上） |
+| accel_start_lon / accel_start_lat / accel_end_lon / accel_end_lat | DOUBLE NULL | 始点・終点 |
 | pre_merge_grade / end_grade | DOUBLE NULL | |
 | composite | JSON | §4.15.1 の複合指標 |
 | difficulty / difficulty_components | DOUBLE / JSON | |
@@ -1546,7 +1549,7 @@ quality:
 | 8 | 北米の分類体系の差 | ルールファイルに country 別の分岐を用意するだけ（P5 で中身を作る） | P5 |
 | 9 | 複数ユーザー運用 | MVP はローカル単一ユーザー。共有は出力ファイルで行う | P4 |
 | 10 | PDF レポート | 任意機能（Playwright がある環境のみ） | — |
-| 11 | 加速車線長の算出方法 | OSM の `lanes` 変化点から推定。取れない場合は null | M3 |
+| 11 | 加速車線長の算出方法 | 2026-11 に定義を確定（ADR-0016）。OSM の並走部の幾何と `lanes` の増減の両方から推定し、除外理由・方法・信頼度・始点終点を保存 | M3 |
 | 12 | 位置確認図（通常地図）の背景 | 背景タイルを使わず、周辺一般道と地名ラベルで代替（オフライン・登録不要を優先） | — |
 
 ---

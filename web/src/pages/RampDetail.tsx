@@ -84,7 +84,7 @@ export default function RampDetail() {
         <div className="card"><h3>属性</h3><table className="dt"><tbody>
           <tr><td>車線数</td><td className="num">{fmt(r.lanes)}</td></tr>
           <tr><td>制限速度</td><td className="num">{fmt(r.maxspeed_kmh, 0, " km/h")}</td></tr>
-          <tr><td>加速車線長</td><td className="num">{fmt(r.accel_lane_len_m, 0, " m")}</td></tr>
+          <tr><td>加速車線長</td><td data-testid="accel-lane">{accelText(r)}</td></tr>
           <tr><td>平均曲率半径</td><td className="num">{fmt(r.mean_radius_m, 0, " m")}</td></tr>
           <tr><td>標高 最高／最低</td><td className="num">{fmt(r.z_max, 1)} / {fmt(r.z_min, 1)} m</td></tr>
           <tr><td>構造物</td><td>橋梁 {fmt(r.bridge_len_m, 0)} m・高架 {fmt(r.viaduct_len_m, 0)} m・トンネル {fmt(r.tunnel_len_m, 0)} m</td></tr>
@@ -110,4 +110,17 @@ export default function RampDetail() {
       </div>
     </div>
   );
+}
+
+const ACCEL_METHOD: Record<string, string> = { geometry: "並走部から", lanes: "車線数の変化から", "geometry+lanes": "並走部と車線数の変化から" };
+const ACCEL_CONF: Record<string, string> = { high: "高", medium: "中", low: "低" };
+
+/** 加速車線（ADR-0016）：測定値と判定方法・信頼度、除外のときは理由。本線への合流でなければ「—」。 */
+function accelText(r: any): string {
+  if (r.accel_lane_status === "measured") {
+    const how = [ACCEL_METHOD[r.accel_lane_method] ?? r.accel_lane_method, `信頼度 ${ACCEL_CONF[r.accel_lane_confidence] ?? "—"}`];
+    return `${fmt(r.accel_lane_len_m, 0, " m")}（${how.join("・")}）`;
+  }
+  if (r.accel_lane_status === "excluded") return `測定対象外：${r.accel_lane_reason_text ?? r.accel_lane_reason}`;
+  return "—";
 }

@@ -293,3 +293,28 @@ def test_multi_region_jp_us(tmp_path, cfg):
     run_pipeline(c, "tochigi_small,us_annarbor_small", st)
     assert set(st.df("SELECT status FROM manual_edit_resolution")["status"]) == {"active"}
     assert st.scalar("SELECT count(*) FROM facility WHERE review_status='reviewed'") == 2
+
+
+def test_accel_lane_on_real_fixture(tochigi_db, cfg):
+    """実データ（宇都宮IC〜鹿沼IC）：本線への合流はすべて判定され、除外は理由付き（ADR-0016）。"""
+    from roadmri.network.accel_lane import REASONS
+
+    _, store, _ = tochigi_db
+    flows = cfg.analysis["accel_lane"]["flows"]
+    df = store.df("SELECT * FROM ramp")
+    merges = df[df["flow"].isin(flows) & df["to_ref"].astype(str).str.contains("mainline")]
+    others = df[~df.index.isin(merges.index)]
+    assert len(merges) >= 5 and merges["accel_lane_status"].notna().all()
+    assert others["accel_lane_status"].isna().all() and others["accel_lane_len_m"].isna().all()
+    measured = merges[merges["accel_lane_status"] == "measured"]
+    excluded = merges[merges["accel_lane_status"] == "excluded"]
+    assert len(measured) >= 3
+    assert measured["accel_lane_len_m"].between(30, 1500).all()
+    assert (
+        measured[["accel_start_lon", "accel_start_lat", "accel_end_lon", "accel_end_lat"]].notna().all().all()
+    )
+    assert set(measured["accel_lane_confidence"]) <= {"high", "medium", "low"}
+    assert excluded["accel_lane_len_m"].isna().all() and set(excluded["accel_lane_reason"]) <= set(REASONS)
+    # 長さ＝並走部（ランプ上）＋増えた車線（本線上）
+    total = measured["accel_parallel_m"] + measured["accel_added_lane_m"]
+    assert (total - measured["accel_lane_len_m"]).abs().max() < 1e-6

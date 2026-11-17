@@ -45,7 +45,7 @@ def difficulty(m: dict[str, Any], flow: str | None, cfg: dict[str, Any]) -> tupl
     c_k = _clamp((m.get("curvature_rate_max") or 0.0) / p["k_ref"])
     accel = m.get("accel_lane_len_m")
     missing_m = False
-    if flow == "entry":
+    if flow in p.get("merge_flows", ["entry"]):
         if accel is None:
             c_m = 0.0
             missing_m = True

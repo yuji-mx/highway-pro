@@ -209,6 +209,24 @@ test("13. IC/JCT 一覧：検索語でサーバー側を絞り込み、見出し
   expect(lines.length - 1).toBe(all);
 });
 
+test("14. ランプ詳細に加速車線長（判定方法・信頼度）、測定対象外は理由を表示", async ({ page }) => {
+  const ramps: any[] = [];
+  for (const q of ["宇都宮", "鹿沼", "大谷"]) {
+    const f = await facility(page, q);
+    ramps.push(...(await api(page, `/facilities/${f.facility_id}`)).ramps);
+  }
+  const measured = ramps.find((r) => r.accel_lane_status === "measured");
+  const excluded = ramps.find((r) => r.accel_lane_status === "excluded");
+  const other = ramps.find((r) => r.accel_lane_status == null);
+  await page.goto(`/ramp/${measured.ramp_id}`);
+  await expect(page.getByTestId("accel-lane")).toContainText(`${Math.round(measured.accel_lane_len_m)} m（`);
+  await expect(page.getByTestId("accel-lane")).toContainText("信頼度");
+  await page.goto(`/ramp/${excluded.ramp_id}`);
+  await expect(page.getByTestId("accel-lane")).toContainText("測定対象外：");
+  await page.goto(`/ramp/${other.ramp_id}`);
+  await expect(page.getByTestId("accel-lane")).toHaveText("—");
+});
+
 test("オフライン：外部（CDN 等）へのリクエストが 0 件", async ({ page }) => {
   for (const p of ["/region", "/mri", "/facilities", "/sections", "/search", "/stats", "/compare"]) {
     await page.goto(p);

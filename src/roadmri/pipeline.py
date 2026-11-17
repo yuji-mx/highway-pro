@@ -36,6 +36,7 @@ from roadmri.ingest.dem import DemSampler, build_providers
 from roadmri.ingest.http import HttpClient
 from roadmri.ingest.osm_pbf import OsmData, read_osm
 from roadmri.logging import get_logger, log_event
+from roadmri.network.accel_lane import measure
 from roadmri.network.dedupe import merge_candidates
 from roadmri.network.graph import RoadGraph
 from roadmri.network.junctions import (
@@ -282,40 +283,22 @@ def step_sections(ctx: Ctx) -> None:
 
 
 # ---- 段 6〜8: metrics（再サンプリング・曲率・標高・勾配・複合指標） -----------------
-def accel_lane_length(rg: RoadGraph, merge_node: int, max_len: float = 1500.0) -> float | None:
-    """合流点から本線の車線減少点までの距離（OSM の lanes 変化から推定。取れない場合は None）。"""
-
-    def lanes(d: dict[str, Any]) -> int | None:
-        try:
-            return int(str(d["tags"].get("lanes")).split(";")[0])
-        except (TypeError, ValueError):
-            return None
-
-    ins = [d for _, _, d in rg.g.in_edges(merge_node, data=True) if d["cls"] == "mainline"]
-    outs = [(v, d) for _, v, d in rg.g.out_edges(merge_node, data=True) if d["cls"] == "mainline"]
-    if not ins or not outs:
-        return None
-    lb = lanes(ins[0])
-    la = lanes(outs[0][1])
-    if lb is None or la is None or la <= lb:
-        return None
-    dist = 0.0
-    node, d = outs[0]
-    route = d.get("route_ref")
-    while dist < max_len:
-        cur = lanes(d)
-        if cur is not None and cur <= lb:
-            return dist
-        dist += float(d["length_m"])
-        nxt = [
-            (v, dd)
-            for _, v, dd in rg.g.out_edges(node, data=True)
-            if dd["cls"] == "mainline" and dd.get("route_ref") == route
-        ]
-        if not nxt:
-            return None
-        node, d = nxt[0]
-    return None
+def accel_lane_metrics(ctx: Ctx, r: Ramp) -> dict[str, Any]:
+    """合流ランプの加速車線（ADR-0016）。対象外の種類は status なし。"""
+    ac = ctx.cfg.analysis["accel_lane"]
+    if r.flow not in ac["flows"] or r.to_ref.get("kind") != "mainline":
+        return {}
+    assert ctx.rg is not None
+    widths = ac["lane_width_m"]
+    width = float(widths.get(ctx.country, widths["default"]))
+    res = measure(ctx.rg.g, ctx.rg.edges_xy(r.edges), r.nodes[-1], r.lanes, ac, width)
+    out = res.metrics()
+    for k, xy in (("start", res.start_xy), ("end", res.end_xy)):
+        lon, lat = ctx.rg.proj.to_lonlat(xy[0], xy[1]) if xy is not None else (None, None)
+        out[f"accel_{k}_lon"] = float(lon) if lon is not None else None
+        out[f"accel_{k}_lat"] = float(lat) if lat is not None else None
+    out["accel_lane_notes"] = "; ".join(res.notes) if res.notes else None
+    return out
 
 
 def _dem_points(ctx: Ctx, cfg: dict[str, Any]) -> Iterator[tuple[np.ndarray, np.ndarray]]:
@@ -363,11 +346,7 @@ def step_metrics(ctx: Ctx, progress: Callable[[float, str], None] | None = None)
             merge_at_end=r.to_ref.get("kind") == "mainline",
         )
         res = analyze_element(geom, ctx.rg.proj, sampler, cfg)
-        res.metrics["accel_lane_len_m"] = (
-            accel_lane_length(ctx.rg, r.nodes[-1])
-            if r.flow == "entry" and r.to_ref.get("kind") == "mainline"
-            else None
-        )
+        res.metrics.update(accel_lane_metrics(ctx, r))
         ctx.ramp_results[r.ramp_id] = res
         done += 1
         if done % 20 == 0:
@@ -515,6 +494,12 @@ def build_tables(ctx: Ctx) -> None:
             "bridge_len_m",
             "viaduct_len_m",
             "accel_lane_len_m",
+            "accel_parallel_m",
+            "accel_added_lane_m",
+            "accel_start_lon",
+            "accel_start_lat",
+            "accel_end_lon",
+            "accel_end_lat",
             "pre_merge_grade",
             "end_grade",
             "dem_low_conf_ratio",
@@ -527,6 +512,14 @@ def build_tables(ctx: Ctx) -> None:
         row["abs_elev_diff_m"] = abs(ed) if ed is not None else None
         row["window_truncated"] = bool(m.get("window_truncated", False))
         row["curve_count"] = int(m.get("curve_count") or 0)
+        for k in (
+            "accel_lane_status",
+            "accel_lane_reason",
+            "accel_lane_method",
+            "accel_lane_confidence",
+            "accel_lane_notes",
+        ):
+            row[k] = m.get(k)
         ramp_rows.append(row)
         for i, (wid, rev) in enumerate(_way_order(r)):
             rwm.append({"ramp_id": r.ramp_id, "way_id": wid, "order": i, "reversed": rev})
