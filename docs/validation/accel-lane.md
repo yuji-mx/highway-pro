@@ -30,3 +30,15 @@ ADR-0016 の検証。同梱の実データ（宇都宮IC〜鹿沼IC、Ann Arbor 
 - `tests/integration/test_pipeline.py::test_accel_lane_on_real_fixture`：実データで、合流はすべて判定され、除外は理由付き、
   対象外の種類は空、長さ＝並走部＋増えた車線。
 - E2E：ランプ詳細に長さ・方法・信頼度、除外の理由を表示。
+
+## 確認・修正（ADR-0017、2026-11-17）
+
+![地理院の航空写真の上で、自動の始点（緑）から自動の終点（赤）より先まで区間を指定しているところ](img/accel-review.png)
+
+- 手動の値は `ramp.accel_manual_*` に、自動の値とは別に保存される。保存・確認・取り消し・「加速車線ではない」の
+  いずれでも、自動の列が変わらないことを API テストで確認（`test_accel_lane_review_keeps_auto_value_separate`）。
+- 再 build 後も手動の値は残り、自動の値は計算し直される（`test_accel_lane_manual_value_survives_rebuild_and_stays_separate`）。
+- 道筋から遠い点、終点が始点より上流、自動で測れていないものの「確認」は受け付けない。
+- 航空写真：地理院（z18）・USGS（z16）とも、プロキシ経由で取得・保存できることを実サーバーで確認。オフラインでは
+  保存済みのタイルだけを返す（API テスト）。
+- E2E：地図で始点・終点をクリック → 長さの表示 → 保存 → 手動の値と差の表示 → 取り消し、航空写真の切替と出典。

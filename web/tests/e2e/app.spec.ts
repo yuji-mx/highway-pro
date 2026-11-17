@@ -227,6 +227,44 @@ test("14. ランプ詳細に加速車線長（判定方法・信頼度）、測�
   await expect(page.getByTestId("accel-lane")).toHaveText("—");
 });
 
+test("15. 加速車線を地図で修正：手動の値は自動の値と別に保存され、差を表示。取り消しで元に戻る", async ({ page }) => {
+  const f = await facility(page, "宇都宮");
+  const ramp = (await api(page, `/facilities/${f.facility_id}`)).ramps.find((r: any) => r.accel_lane_status === "measured");
+  const a = await api(page, `/ramps/${ramp.ramp_id}/accel_lane`);
+  // 始点は自動の始点より少し上流（道筋の頂点）、終点は自動の終点
+  const path: [number, number][] = a.path.coordinates;
+  const d2 = (p: number[]) => (p[0] - a.auto.start[0]) ** 2 + (p[1] - a.auto.start[1]) ** 2;
+  const i = path.reduce((best, p, k) => (d2(p) < d2(path[best]) ? k : best), 0);
+  const start = path[Math.max(0, i - 2)];
+  await page.goto(`/ramp/${ramp.ramp_id}`);
+  await expect(page.getByTestId("accel-panel")).toContainText("加速車線の確認・修正");
+  await expect(page.getByTestId("accel-manual-status")).toHaveText("未確認");
+  await page.getByTestId("accel-zoom").click();
+  await page.getByTestId("accel-correct").click();
+  await clickLonLat(page, "ramp-map", start[0], start[1]);
+  await expect(page.getByTestId("accel-picking")).toContainText("終点");
+  await clickLonLat(page, "ramp-map", a.auto.end[0], a.auto.end[1]);
+  const preview = page.getByTestId("accel-preview-length");
+  await expect(preview).toBeVisible();
+  const previewM = Number((await preview.textContent())!.replace(/[^0-9.]/g, ""));
+  expect(previewM).toBeGreaterThan(a.auto.length_m);
+  await page.getByTestId("accel-comment").fill("航空写真で確認");
+  await page.getByTestId("accel-save").click();
+  await expect(page.getByTestId("accel-manual-status")).toHaveText("修正");
+  await expect(page.getByTestId("accel-diff")).toContainText("+");
+  // 自動の値は変わらない
+  const after = await api(page, `/ramps/${ramp.ramp_id}/accel_lane`);
+  expect(after.auto.length_m).toBe(a.auto.length_m);
+  expect(after.manual.length_m).toBeCloseTo(previewM, -1);
+  await expect(page.getByTestId("accel-history")).toContainText("航空写真で確認");
+  await page.getByTestId("accel-revert").click();
+  await expect(page.getByTestId("accel-manual-status")).toHaveText("未確認");
+  // 航空写真の切替（出典を表示）
+  await page.getByTestId("accel-aerial").click();
+  await expect(page.getByTestId("aerial-attribution")).toContainText("国土地理院");
+  await page.getByTestId("accel-aerial").click();
+});
+
 test("オフライン：外部（CDN 等）へのリクエストが 0 件", async ({ page }) => {
   for (const p of ["/region", "/mri", "/facilities", "/sections", "/search", "/stats", "/compare"]) {
     await page.goto(p);

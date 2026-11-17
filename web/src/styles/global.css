@@ -101,3 +101,5 @@ tr.hl td { background: rgba(56, 225, 255, .07); }
   .chips { display: none; }
   .gsearch input { width: 140px; }
 }
+.map-attr { position: absolute; right: 6px; bottom: 4px; font-size: 10px; color: #dfe6ee; background: rgba(0, 0, 0, 0.55); padding: 1px 6px; border-radius: 3px; pointer-events: none; }
+.mri-pop { pointer-events: none; }   /* ホバーの説明は地図のクリック（始点・終点の指定など）を妨げない */

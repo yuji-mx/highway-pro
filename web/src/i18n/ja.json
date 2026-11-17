@@ -59,6 +59,7 @@
   "layer.target": "解析対象",
   "layer.warnings": "品質警告",
   "layer.labels": "ラベル",
+  "layer.aerial": "航空写真",
   "dir.north": "北行き（NB）",
   "dir.south": "南行き（SB）",
   "dir.east": "東行き（EB）",

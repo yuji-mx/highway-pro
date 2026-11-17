@@ -26,6 +26,7 @@ http:
     # 下位の DEM（Copernicus）で補完して build を止めない（次回の build で再取得）。
     elevation.nationalmap.gov: {per_second: 5, max_concurrency: 2, timeout_s: 120, max_retries: 3}
     api.openstreetmap.org: {min_interval_s: 3.0, max_concurrency: 1}
+    basemap.nationalmap.gov: {per_second: 5, max_concurrency: 2, timeout_s: 30, max_retries: 2}
     default: {max_concurrency: 4}
 user:
   name: null               # null の場合は OS のユーザー名
@@ -67,4 +68,20 @@ map:                       # 地図表示（Web UI）。広域データでの描
 list:                      # 一覧画面（Web UI）
   page_size: 100           # 1 ページの件数（サーバー側でページ分割・並べ替え・検索する）
   search_delay_ms: 300     # 検索語の入力が止まってから検索するまでの待ち時間
+imagery:                   # 地図の背景の航空写真（加速車線の確認用。ADR-0017）。表示した範囲のタイルだけを取得し、
+  # data/cache/imagery に保存する。オフラインでは保存済みのタイルだけを表示する
+  sources:
+    gsi_seamless:
+      name: 地理院 シームレス空中写真
+      url: https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg
+      max_zoom: 18             # これより拡大すると 18 のタイルを拡大して表示
+      bounds: [122.9, 20.4, 154.0, 45.6]   # この範囲だけ要求する（西, 南, 東, 北）
+      attribution: 出典：国土地理院（シームレス空中写真）
+    usgs_imagery:
+      name: USGS The National Map 航空写真
+      url: https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}
+      max_zoom: 16
+      bounds: [-179.2, 18.9, -66.9, 71.4]
+      attribution: "USGS The National Map: Orthoimagery"
+  browser_cache_days: 30   # ブラウザにタイルを保持させる日数
 

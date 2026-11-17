@@ -14,11 +14,13 @@ from roadmri.analysis.query import QueryError
 from roadmri.analysis.ranges import RangeError
 from roadmri.api.deps import AppState
 from roadmri.api.routers import (
+    accel,
     changes,
     compare,
     edits,
     export,
     facilities,
+    imagery,
     images,
     jobs,
     layers,
@@ -64,8 +66,10 @@ def create_app(cfg: Config | None = None, store: Store | None = None) -> FastAPI
         jobs,
         layers,
         tiles,
+        imagery,
         facilities,
         ramps,
+        accel,
         sections,
         search,
         similar,

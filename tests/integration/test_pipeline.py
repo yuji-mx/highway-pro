@@ -318,3 +318,20 @@ def test_accel_lane_on_real_fixture(tochigi_db, cfg):
     # 長さ＝並走部（ランプ上）＋増えた車線（本線上）
     total = measured["accel_parallel_m"] + measured["accel_added_lane_m"]
     assert (total - measured["accel_lane_len_m"]).abs().max() < 1e-6
+
+
+def test_accel_lane_manual_value_survives_rebuild_and_stays_separate(fresh_synthetic):
+    """手動の加速車線は再 build 後も別の列に残り、自動の値は再計算される（ADR-0017）。"""
+    cfg, store, _ = fresh_synthetic
+    rid = store.scalar("SELECT ramp_id FROM ramp WHERE accel_lane_status='measured' ORDER BY ramp_id LIMIT 1")
+    auto = store.one("SELECT accel_lane_len_m, accel_end_lon, accel_end_lat FROM ramp WHERE ramp_id=?", [rid])
+    value = {"action": "corrected", "length_m": 412.5, "start": [139.1, 36.1], "end": [139.2, 36.2]}
+    add_edit(store, "ramp", rid, "accel_lane", value, "tester", "写真で確認")
+    run_pipeline(cfg, "synthetic", store)
+    r = store.one("SELECT * FROM ramp WHERE ramp_id=?", [rid])
+    assert r["accel_manual_status"] == "corrected" and r["accel_manual_len_m"] == 412.5
+    assert (r["accel_manual_end_lon"], r["accel_manual_end_lat"]) == (139.2, 36.2)
+    assert r["accel_manual_note"] == "写真で確認" and r["accel_manual_user"] == "tester"
+    assert r["accel_lane_len_m"] == auto["accel_lane_len_m"]  # 自動の値は上書きされない
+    others = store.df("SELECT accel_manual_status FROM ramp WHERE ramp_id<>?", [rid])
+    assert others["accel_manual_status"].isna().all()
