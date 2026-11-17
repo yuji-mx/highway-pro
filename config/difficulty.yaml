@@ -7,6 +7,7 @@ params:
   k_ref: 0.0005          # 1/m^2 の曲率変化率の基準
   accel_ref_m: 320
   accel_span_m: 150
+  merge_flows: [entry, jct_link, facility_link]   # 合流条件（M）を評価する種類（本線への合流。analysis.yaml の accel_lane.flows と同じ）
 composite:
   small_r_m: 150
   small_r_long_len_m: 400

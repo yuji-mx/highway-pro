@@ -63,3 +63,13 @@ section:
 route:
   max_alternatives: 3
   max_overlap: 0.70
+accel_lane:                 # 加速車線長（ADR-0016）。始点＝隔て部分の終わり、終点＝テーパーの終わり
+  flows: [entry, jct_link, facility_link]   # 本線へ合流するランプのうち、測る種類（減速車線は対象外）
+  lane_width_m: {JP: 3.5, US: 3.6, default: 3.5}   # 本線のすぐ隣かを判定する車線幅
+  default_mainline_lanes: 2 # 本線の lanes が不明なときの車線数
+  adjacency_tolerance_m: 1.5   # 「すぐ隣」の許容差（OSM の描画のずれ）
+  sample_step_m: 5          # 並走部を調べる間隔
+  max_search_m: 1500        # 本線・ランプをたどる最大距離（車線が戻らなければ「車線追加」）
+  min_length_m: 30          # これより短いものは隔て部分の終わりが特定できないとして除外
+  sensitivity_m: 1.0        # 信頼度の判定：許容差をこれだけ広げたときに始点が動く距離を見る
+  low_confidence_spread_m: 50   # 始点の動きがこれを超えたら信頼度「低」
