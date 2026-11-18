@@ -8,6 +8,7 @@ import { Empty, ErrorBox, Skeleton, fmt } from "../components/common/ui";
 import DataTable, { type Col } from "../components/tables/DataTable";
 import { t } from "../i18n";
 import { convert, unitLabel } from "../state/units";
+import { displayName } from "../components/common/names";
 
 interface Row {
   ramp_id: string; facility_id: string; facility_name: string | null; route_ref: string | null; flow: string;
@@ -28,7 +29,7 @@ const FILTER_KEYS = ["q", "country", "flow", "auto_status", "reason", "method", 
 const signed = (v: number | null | undefined) => (v == null ? "—" : `${v > 0 ? "+" : ""}${fmt(v, 0, " m")}`);
 
 const COLS: Col<Row>[] = [
-  { key: "facility_name", label: "施設", get: (r) => r.facility_name ?? "名称不明" },
+  { key: "facility_name", label: "施設", get: (r) => displayName(r.facility_name) },
   { key: "ramp_id", label: "ランプ", render: (r) => <span className="mono">{r.ramp_id.slice(-8)}</span> },
   { key: "route_ref", label: "路線" },
   { key: "flow", label: "種類", get: (r) => t(`flow.${r.flow}`, r.flow) },

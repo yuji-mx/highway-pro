@@ -5,9 +5,10 @@ import { api } from "../api/client";
 import type { Facility } from "../api/types";
 import { ConfBar, Empty, ErrorBox, QualityBadge, ReviewBadge, Skeleton, TypeBadge, fmt } from "../components/common/ui";
 import DataTable, { type Col } from "../components/tables/DataTable";
+import { displayName } from "../components/common/names";
 
 const COLS: Col<Facility>[] = [
-  { key: "name", label: "名称", get: (r) => r.name ?? "名称不明" },
+  { key: "name", label: "名称", get: (r) => displayName(r.name) },
   { key: "facility_type", label: "種別", render: (r) => <TypeBadge type={r.facility_type} /> },
   { key: "route_refs", label: "路線", get: (r) => (r.route_refs ?? []).join(", "), sortable: false },
   { key: "exit_number", label: "出口番号" },

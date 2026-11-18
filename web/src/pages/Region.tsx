@@ -1,11 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FeatureCollection } from "geojson";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, errMsg, waitJob } from "../api/client";
 import { ErrorBox, Skeleton } from "../components/common/ui";
 import { clearLayerCache } from "../components/map/layers";
 import RoadMriMap, { type Overlay } from "../components/map/RoadMriMap";
 import { useToast } from "../state/stores";
+
+/** /api/meta の areas（config/settings.yaml）。 */
+interface Area { label: string; countries: string[]; bounds: [number, number, number, number]; dem: string; country: string; example_bbox?: string }
 
 const STATUS: Record<string, [string, string]> = { processed: ["処理済み", "high"], fetched: ["取得済み", "ok"], cached: ["キャッシュあり", "medium"], missing: ["未取得", "low"] };
 const TABS = ["都道府県", "市区町村", "州・郡", "矩形", "中心＋半径", "路線名", "IC/JCT 名", "GeoJSON", "地図で選択"];
@@ -15,17 +19,49 @@ const PHASES = [["P1 成立性確認", "MVP"], ["P2 車両性能向け解析", "
 export default function Region() {
   const qc = useQueryClient();
   const toast = useToast((s) => s.push);
-  const [country, setCountry] = useState("JP");
+  const regions = useQuery({ queryKey: ["regions"], queryFn: () => api.get<any[]>("/regions") });
+  const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<any>("/meta") });
+  const summary = useQuery({ queryKey: ["layers-summary", meta.data?.run?.run_id], queryFn: () => api.get<any>("/layers/summary"),
+    enabled: !!meta.data?.has_data });
+  const [sp, setSp] = useSearchParams();
+  const areas: Record<string, Area> = meta.data?.areas ?? {};
+  const areaOf = (c: string) => Object.keys(areas).find((k) => areas[k].countries.includes(c));
+  // 初期の地域：URL（?area=）、なければ DB にある国の地域（1 つだけのとき）、どちらでもなければ最初の地域（日本）
+  const dataAreas = [...new Set<string>((meta.data?.countries ?? []).map((c: string) => areaOf(c)).filter(Boolean) as string[])];
+  const area = (sp.get("area") && areas[sp.get("area")!] ? sp.get("area")! : dataAreas.length === 1 ? dataAreas[0] : Object.keys(areas)[0]) ?? "JP";
+  const setArea = (k: string) => { const n = new URLSearchParams(sp); n.set("area", k); setSp(n, { replace: true }); };
   const [tab, setTab] = useState(3);
-  const [sel, setSel] = useState<string | null>(null);
-  const [bbox, setBbox] = useState("139.72,36.515,139.90,36.655");
-  const [circle, setCircle] = useState({ lon: "139.835", lat: "36.605", r: "30" });
+  // 入力は地域ごとに保持する（日本⇔北米を切り替えても、それぞれの入力は消えない）
+  const [selBy, setSelBy] = useState<Record<string, string | null>>({});
+  const [bboxBy, setBboxBy] = useState<Record<string, string>>({});
+  const [circleBy, setCircleBy] = useState<Record<string, { lon: string; lat: string; r: string }>>({});
   const [geo, setGeo] = useState("");
   const [text, setText] = useState("");
   const [progress, setProgress] = useState<{ p: number; m?: string } | null>(null);
-  const regions = useQuery({ queryKey: ["regions"], queryFn: () => api.get<any[]>("/regions") });
-  const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<any>("/meta") });
-  const region = (regions.data ?? []).find((r) => r.id === sel) ?? (regions.data ?? []).find((r) => r.status === "processed");
+  const inArea = (rows: any[]) => rows.filter((r) => areaOf(r.country) === area);
+  const areaRegions = inArea(regions.data ?? []);
+  const sel = selBy[area] ?? null;
+  const region = areaRegions.find((r) => r.id === sel) ?? areaRegions.find((r) => r.status === "processed") ?? areaRegions[0];
+  // 矩形・円の初期値：DB にあるその地域のデータの範囲、なければその地域の最初の地域プリセットの範囲
+  const baseBox = useMemo<number[] | null>(() => {
+    const cb = summary.data?.country_bounds ?? {};
+    const boxes = Object.entries(cb).filter(([c]) => areaOf(c) === area).map(([, b]) => b as number[]);
+    if (boxes.length) return [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))];
+    // その地域のデータがない場合は、利用者が選んだ地域プリセットの範囲だけを使う（州全域などを誤って適用しないよう、
+    // 何も選んでいなければ空欄にする）
+    const pre = areaRegions.find((r) => r.id === selBy[area])?.range?.bbox;
+    return pre ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary.data, area, regions.data, meta.data]);
+  const r5 = (v: number): string => String(Math.round(v * 1000) / 1000);
+  const bbox = bboxBy[area] ?? (baseBox ? baseBox.map(r5).join(",") : "");
+  const setBbox = (v: string) => setBboxBy({ ...bboxBy, [area]: v });
+  const circle = useMemo(() => circleBy[area] ?? (baseBox
+    ? { lon: r5((baseBox[0] + baseBox[2]) / 2), lat: r5((baseBox[1] + baseBox[3]) / 2),
+        r: String(Math.max(1, Math.round(((baseBox[2] - baseBox[0]) * 111 * Math.cos(((baseBox[1] + baseBox[3]) / 2) * Math.PI / 180)) / 2))) }
+    : { lon: "", lat: "", r: "" }), [circleBy, area, baseBox]);
+  const setCircle = (v: { lon: string; lat: string; r: string }) => setCircleBy({ ...circleBy, [area]: v });
+  const setSel = (id: string) => setSelBy({ ...selBy, [area]: id });
   const rangeSpec = (): any => {
     if (tab === 3) return { type: "bbox", bbox: bbox.split(",").map(Number) };
     if (tab === 4) return { type: "circle", circle: { lon: Number(circle.lon), lat: Number(circle.lat), radius_km: Number(circle.r) } };
@@ -34,25 +70,56 @@ export default function Region() {
     if (tab === 2) return { type: "admin", admin_codes: text.split(",").map((s) => s.trim()), bbox: region?.range?.bbox };
     return region?.range;
   };
+  // 範囲が選んだ地域（日本・北米）の中にあるか。外なら適用させず、どの地域の座標かを案内する
+  const rangeIssue = ((): string | null => {
+    const pts: number[][] = [];
+    if (tab === 3) {
+      const b = bbox.split(",").map(Number);
+      if (!bbox.trim()) return "矩形を「西,南,東,北」で入力するか、地域プリセットを選んでください";
+      if (b.length !== 4 || b.some((v) => !Number.isFinite(v))) return "矩形は「西,南,東,北」の 4 つの数値で指定してください";
+      if (b[0] >= b[2] || b[1] >= b[3]) return "矩形の西＜東、南＜北になるように指定してください";
+      pts.push([b[0], b[1]], [b[2], b[3]]);
+    } else if (tab === 4) {
+      const c = [Number(circle.lon), Number(circle.lat)];
+      if (!circle.lon.trim() || !circle.lat.trim()) return "中心の経度・緯度を入力するか、地域プリセットを選んでください";
+      if (c.some((v) => !Number.isFinite(v)) || !(Number(circle.r) > 0)) return "経度・緯度・半径を数値で指定してください";
+      pts.push(c);
+    } else return null;
+    const inside = (k: string) => pts.every(([x, y]) => { const b = areas[k]?.bounds; return !!b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; });
+    if (!areas[area] || inside(area)) return null;
+    const other = Object.keys(areas).find((k) => k !== area && inside(k));
+    return `指定した範囲は「${areas[area].label}」の範囲外です。` + (other ? `「${areas[other].label}」の座標のようです。地域を切り替えるか、座標を確認してください。` : "座標を確認してください。");
+  })();
+  // 指定中の範囲（地図の表示範囲と枠に使う）
+  const previewBox = useMemo<[number, number, number, number] | null>(() => {
+    let b: number[] | undefined;
+    if (tab === 3) b = bbox.split(",").map(Number);
+    else if (tab === 4) {
+      const [x, y, r] = [Number(circle.lon), Number(circle.lat), Number(circle.r)];
+      const dy = r / 111, dx = r / (111 * Math.cos((y * Math.PI) / 180));
+      b = [x - dx, y - dy, x + dx, y + dy];
+    } else b = region?.range?.bbox;
+    return b && b.length === 4 && b.every((v) => Number.isFinite(v)) && b[0] < b[2] && b[1] < b[3] ? (b as [number, number, number, number]) : null;
+  }, [tab, bbox, circle, region]);
   const preview = useMemo<Overlay[]>(() => {
     try {
-      const r = tab === 3 ? { bbox: bbox.split(",").map(Number) } : region?.range;
-      const b = r?.bbox;
+      const b = previewBox;
       if (!b || b.length !== 4 || b.some((v: number) => !Number.isFinite(v))) return [];
       const ring = [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]], [b[0], b[1]]];
       return [{ id: "range", color: "#ffd84a", width: 1.5, data: { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: ring } }] } as FeatureCollection }];
     } catch {
       return [];
     }
-  }, [tab, bbox, region]);
+  }, [previewBox]);
   const apply = useMutation({
     mutationFn: async () => {
       let id = region?.id;
       if ((tab >= 3 && tab !== 6) || tab === 2) {
         const spec = rangeSpec();
         id = `custom_${Date.now()}`;
-        await api.post("/regions", { id, label: "カスタム範囲", country: country === "NA" ? "US" : country, range: spec,
-          dem: region?.dem ?? (country === "NA" ? "us" : "jp"), pbf: region?.pbf ?? {} });
+        // 国と DEM は選んだ地域の既定（別の国の地域プリセットの設定を引き継がない）
+        await api.post("/regions", { id, label: "カスタム範囲", country: areas[area]?.country ?? "JP", range: spec,
+          dem: areas[area]?.dem ?? "jp", pbf: region?.pbf ?? {} });
       }
       const j: any = await api.post("/pipeline/run", { region: id });
       await waitJob(j.job_id, (p, m) => setProgress({ p, m }));
@@ -67,9 +134,12 @@ export default function Region() {
     <div className="page">
       <h1>地域・路線選択
         <span className="row" style={{ marginLeft: 12 }}>
-          {[["JP", "日本"], ["NA", "北米"]].map(([k, l]) => <button key={k} className={country === k ? "primary" : ""} onClick={() => setCountry(k)}>{l}</button>)}
-        </span></h1>
-      {country === "NA" && (
+          {Object.entries(areas).map(([k, a]) => <button key={k} className={area === k ? "primary" : ""} onClick={() => setArea(k)}
+            data-testid={`area-${k}`}>{a.label}</button>)}
+        </span>
+        {dataAreas.length > 0 && <span className="note" style={{ marginLeft: 12 }} data-testid="data-areas">
+          現在のデータ：{dataAreas.map((k) => areas[k]?.label ?? k).join("・")}</span>}</h1>
+      {area === "NA" && (
         <div className="note" style={{ marginBottom: 8 }} data-testid="na-note">
           米国：OSM（Geofabrik の州別 PBF）＋ USGS 3DEP 標高（The National Map、登録不要、NAVD88）。方向は北行き・南行き・東行き・西行き、
           出口番号のみの出口は「路線＋出口番号」で施設名を付けます。カナダは地域設定と DEM（NRCan）アダプタが未整備です。
@@ -79,7 +149,7 @@ export default function Region() {
         <div className="stack">
           <div className="card"><h3>地域プリセット</h3>
             <table className="dt" data-testid="region-table"><thead><tr><th>地域</th><th>ID</th><th>状態</th></tr></thead><tbody>
-              {(regions.data ?? []).filter((r) => (country === "JP" ? r.country === "JP" : r.country !== "JP")).map((r) => (
+              {areaRegions.map((r) => (
                 <tr key={r.id} className={`click ${region?.id === r.id ? "hl" : ""}`} onClick={() => setSel(r.id)}>
                   <td>{r.label}</td><td className="mono">{r.id}</td><td><span className={`badge b-${STATUS[r.status]?.[1]}`}>{STATUS[r.status]?.[0] ?? r.status}</span></td></tr>))}
             </tbody></table></div>
@@ -88,20 +158,22 @@ export default function Region() {
             {tab === 0 && <div className="note">都道府県は地域プリセットから選択します（JIS コード、例：栃木 09）。境界ポリゴンは data/raw/boundaries/ に保存したものを使います。</div>}
             {tab === 1 && <div className="note">市区町村コードによる指定：境界ポリゴン（admin_level 7）を取得後に利用できます。</div>}
             {tab === 2 && <label className="form">州 FIPS コード（例：ミシガン 26、コロラド 08。境界ポリゴンがない場合は地域プリセットの矩形で代替）<input value={text} onChange={(e) => setText(e.target.value)} data-testid="fips-input" /></label>}
-            {tab === 3 && <label className="form">北西・南東（西,南,東,北）<input value={bbox} onChange={(e) => setBbox(e.target.value)} data-testid="bbox-input" /></label>}
+            {tab === 3 && <label className="form">北西・南東（西,南,東,北）<input value={bbox} onChange={(e) => setBbox(e.target.value)} data-testid="bbox-input"
+              placeholder={areas[area]?.example_bbox ? `例：${areas[area].example_bbox}` : ""} /></label>}
             {tab === 4 && <div className="form"><label>経度<input value={circle.lon} onChange={(e) => setCircle({ ...circle, lon: e.target.value })} /></label>
               <label>緯度<input value={circle.lat} onChange={(e) => setCircle({ ...circle, lat: e.target.value })} /></label>
               <label>半径 [km]<input value={circle.r} onChange={(e) => setCircle({ ...circle, r: e.target.value })} /></label></div>}
             {(tab === 5 || tab === 6) && <label className="form">{tab === 5 ? "路線名または ref（カンマ区切り）" : "施設名"}<input value={text} onChange={(e) => setText(e.target.value)} /></label>}
             {(tab === 7 || tab === 8) && <label className="form">GeoJSON（Polygon / MultiPolygon、WGS84）<textarea rows={4} value={geo} onChange={(e) => setGeo(e.target.value)} /></label>}
             <div className="row" style={{ marginTop: 8 }}>
-              <button className="primary" disabled={apply.isPending} onClick={() => apply.mutate()} data-testid="apply-range">範囲を適用</button>
+              <button className="primary" disabled={apply.isPending || !!rangeIssue} onClick={() => apply.mutate()} data-testid="apply-range">範囲を適用</button>
               {progress && <span className="num">{Math.round(progress.p * 100)}% {progress.m}</span>}
             </div>
+            {rangeIssue && <div className="warn" data-testid="range-issue">⚠ {rangeIssue}</div>}
           </div>
         </div>
         <div className="stack">
-          <RoadMriMap height={300} overlays={preview} showLabels={false} testId="region-map" />
+          <RoadMriMap height={300} overlays={preview} focus={previewBox} showLabels={false} testId="region-map" />
           <div className="card"><h3>データ取得状態</h3>
             <table className="dt"><thead><tr><th>データ種別</th><th>出典・版</th><th>取得日</th><th>規模</th><th>状態</th></tr></thead><tbody>
               {(m?.sources ?? []).map((s: any) => <tr key={s.source_id}><td>OSM</td><td>{s.name}</td><td>{String(s.retrieved_at).slice(0, 10)}</td><td>{m.counts.facility} 施設</td><td><span className="badge b-high">処理済み</span></td></tr>)}

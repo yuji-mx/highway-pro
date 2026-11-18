@@ -49,6 +49,6 @@ jobs:
         working-directory: .
       - run: npx playwright install --with-deps chromium
       - name: E2E（視覚回帰は OS ごとの基準画像があるときだけ）
-        run: npx playwright test tests/e2e/app.spec.ts
+        run: npx playwright test tests/e2e/app.spec.ts tests/e2e/ui_review.spec.ts
         env:
           CI: "1"

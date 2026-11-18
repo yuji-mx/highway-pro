@@ -117,7 +117,7 @@ export function legendFor(metric: string, zr: [number, number] = [30, 550], shap
         { label: "本線", color: "#eef3f9" },
         { label: "ランプ", color: "#38e1ff" },
         { label: "JCT連絡", color: "#ffd84a" },
-        { label: "一般道", color: "rgba(110,125,140,.6)" },
+        { label: "一般道", color: "rgba(150,166,184,.8)" },
         { label: "解析対象", color: "#ff7a2e" },
       ];
   }

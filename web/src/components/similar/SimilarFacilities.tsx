@@ -4,6 +4,7 @@ import { api } from "../../api/client";
 import { useCompareTray } from "../../state/stores";
 import { ErrorBox, Skeleton, fmt } from "../common/ui";
 import FeatureSquares from "./FeatureSquares";
+import { displayName } from "../common/names";
 
 /** 類似 IC/JCT カード（§4.12.2）。 */
 export default function SimilarFacilities({ facilityId, baseName, limit = 10 }: { facilityId: string; baseName?: string | null; limit?: number }) {
@@ -24,7 +25,7 @@ export default function SimilarFacilities({ facilityId, baseName, limit = 10 }: 
           {d.results.map((r: any, i: number) => (
             <tr key={r.facility_id}>
               <td className="n">{i + 1}</td>
-              <td>{r.name ?? r.facility_id}</td>
+              <td>{r.name ? displayName(r.name) : r.facility_id}</td>
               <td>{r.facility_type}</td>
               <td>{r.shape_class}{!r.shape_match && <span className="note">（形状違い）</span>}</td>
               <td><span className="simbar"><i style={{ width: `${r.similarity * 100}%` }} /></span> <span className="num">{fmt(r.similarity, 2)}</span></td>

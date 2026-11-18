@@ -39,6 +39,17 @@ def test_meta_display_settings(client):
     m = client.get("/api/meta").json()
     assert m["map"]["label_max_count"] > 0 and m["map"]["tiles"]["layers"]["general"]["min_zoom"] > 0
     assert m["list"]["page_size"] > 0
+    # 経路異常のコードには日本語の短い名称と説明がある（画面で内部コードをそのまま出さない）
+    from roadmri.network.anomalies import ANOMALY_FLAGS
+
+    af = m["anomaly_flags"]
+    assert set(af) == set(ANOMALY_FLAGS)
+    assert (
+        af["EXCESSIVE_DETOUR"]["label"]
+        and af["NETWORK_DISCONTINUITY"]["message"] == ANOMALY_FLAGS["NETWORK_DISCONTINUITY"][1]
+    )
+    assert all(v["label"] != k for k, v in af.items())
+    assert set(m["areas"]) == {"JP", "NA"} and m["map"]["tooltip"]["show_delay_ms"] > 0
 
 
 def test_meta(client):

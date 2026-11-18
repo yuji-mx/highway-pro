@@ -5,6 +5,7 @@ import { useCompareTray } from "../../state/stores";
 import { ErrorBox, Skeleton, fmt } from "../common/ui";
 import RoadMriMap from "../map/RoadMriMap";
 import FeatureSquares from "../similar/FeatureSquares";
+import { displayName } from "../common/names";
 
 const R = 1500; // 周辺形状図の半径（同じ縮尺）
 
@@ -30,9 +31,9 @@ export function ComparePanel() {
   return (
     <div className="stack" data-testid="compare-panel">
       <div className="grid2">
-        <div><div className="trayslot a" style={{ display: "inline-block" }}>A {d.a.name}</div>
+        <div><div className="trayslot a" style={{ display: "inline-block" }}>A {displayName(d.a.name)}</div>
           <RoadMriMap height={240} focus={fa} selectedFacilityId={d.a.facility_id} testId="compare-map-a" /></div>
-        <div><div className="trayslot b" style={{ display: "inline-block" }}>B {d.b.name}</div>
+        <div><div className="trayslot b" style={{ display: "inline-block" }}>B {displayName(d.b.name)}</div>
           <RoadMriMap height={240} focus={fb} selectedFacilityId={d.b.facility_id} testId="compare-map-b" /></div>
       </div>
       <div className="row">
@@ -62,8 +63,8 @@ export function CompareTray({ onGoExport }: { onGoExport?: () => void }) {
   return (
     <div className="tray" data-testid="compare-tray">
       <b>比較トレイ</b>
-      <span className="trayslot a" data-testid="tray-a">A: {a ? a.name ?? a.facility_id : "未登録"}{a && <button className="ghost" onClick={() => remove("a")} aria-label="A を解除">×</button>}</span>
-      <span className="trayslot b" data-testid="tray-b">B: {b ? b.name ?? b.facility_id : "未登録"}{b && <button className="ghost" onClick={() => remove("b")} aria-label="B を解除">×</button>}</span>
+      <span className="trayslot a" data-testid="tray-a">A: {a ? (a.name ? displayName(a.name) : a.facility_id) : "未登録"}{a && <button className="ghost" onClick={() => remove("a")} aria-label="A を解除">×</button>}</span>
+      <span className="trayslot b" data-testid="tray-b">B: {b ? (b.name ? displayName(b.name) : b.facility_id) : "未登録"}{b && <button className="ghost" onClick={() => remove("b")} aria-label="B を解除">×</button>}</span>
       <button onClick={swap} disabled={!a && !b}>⇄ 入れ替え</button>
       <button className="primary" onClick={() => setOpen(!open)} disabled={!a || !b} data-testid="tray-open">{open ? "比較表を閉じる" : "比較表を開く"}</button>
       {onGoExport && <button onClick={onGoExport}>比較・出力画面へ</button>}

@@ -27,5 +27,12 @@ export default defineConfig({
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
     },
+    {
+      // 米国のみ：Ann Arbor, MI（地域選択・表示単位の初期値の確認用）
+      command: `cd .. && uv run python scripts/e2e_server.py ${PORT + 2} us_annarbor_small`,
+      url: `http://127.0.0.1:${PORT + 2}/api/meta`,
+      timeout: 180_000,
+      reuseExistingServer: !process.env.CI,
+    },
   ],
 });

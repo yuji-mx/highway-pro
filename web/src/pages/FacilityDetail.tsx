@@ -9,6 +9,7 @@ import DataTable, { type Col } from "../components/tables/DataTable";
 import { accelShort } from "../components/accel/accelText";
 import { t } from "../i18n";
 import { useCompareTray, useSimilar, useToast } from "../state/stores";
+import { displayName } from "../components/common/names";
 
 const SHAPES = ["トランペット型", "ダイヤモンド型", "変形ダイヤモンド型", "クローバーリーフ型", "部分クローバー型", "シングルポイント型",
   "平面交差接続型", "ハーフIC", "スマートIC", "複合型", "Y型", "T型", "タービン型", "スタック型", "風車型", "SA/PA", "分類不能"];
@@ -123,7 +124,7 @@ export default function FacilityDetail() {
   return (
     <div className="page" data-testid="facility-detail">
       <h1>
-        {f.name ?? "名称不明"} <TypeBadge type={f.facility_type} /> <QualityBadge q={f.quality_level} prefix="品質 " /> <ReviewBadge s={f.review_status} />
+        {displayName(f.name)} <TypeBadge type={f.facility_type} /> <QualityBadge q={f.quality_level} prefix="品質 " /> <ReviewBadge s={f.review_status} />
         <span className="mut" style={{ fontSize: 12 }}>{(f.route_refs ?? []).join(" / ")} ・ 出口 {f.exit_number ?? "—"} ・ OSM {(f.osm_ids ?? []).join(", ")}</span>
         <span style={{ marginLeft: "auto" }} className="row">
           <button disabled={!f.prev_id} onClick={() => nav(`/facility/${f.prev_id}`)}>← 前へ</button>
@@ -174,7 +175,7 @@ export default function FacilityDetail() {
             {(f.sections ?? []).map((s: any) => (
               <tr key={s.section_id} className="click" onClick={() => nav(`/sections?id=${encodeURIComponent(s.section_id)}`)}>
                 <td>{s.route_ref}</td><td>{t(`dir.${s.direction}`, s.direction)}</td>
-                <td>{s.from_facility_id === id ? `→ ${s.to_name ?? "—"}` : `← ${s.from_name ?? "—"}`}</td>
+                <td>{s.from_facility_id === id ? `→ ${s.to_name ? displayName(s.to_name) : "—"}` : `← ${s.from_name ? displayName(s.from_name) : "—"}`}</td>
                 <td className="n">{fmt((s.dist_standard_m ?? 0) / 1000, 2, " km")}</td><td className="n">{fmt(s.grade_up_max_w100, 1, "%")}</td><td className="n">{fmt(s.min_radius_m, 0, " m")}</td>
               </tr>
             ))}
