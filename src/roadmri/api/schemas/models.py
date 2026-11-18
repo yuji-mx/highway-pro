@@ -109,3 +109,19 @@ class SavedQuery(BaseModel):
 class SavedRange(BaseModel):
     name: str
     spec: dict[str, Any]
+
+
+class AccelPoints(BaseModel):
+    """加速車線の始点・終点（経度, 緯度）。道筋（ランプ＋下流の本線）に寄せて測る。"""
+
+    start: tuple[float, float]
+    end: tuple[float, float]
+
+
+class AccelReview(BaseModel):
+    """加速車線の確認・修正（ADR-0017）。自動の値は上書きせず、別に保存する。"""
+
+    action: Literal["confirmed", "corrected", "not_accel_lane"]
+    start: tuple[float, float] | None = None
+    end: tuple[float, float] | None = None
+    comment: str | None = None

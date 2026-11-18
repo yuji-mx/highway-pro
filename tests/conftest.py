@@ -30,6 +30,7 @@ def _cfg_for(tmp: Path, base: Config) -> Config:
             "settings.paths.exports_dir": str(tmp / "exports"),
             "settings.paths.logs_dir": str(tmp / "logs"),
             "settings.paths.raw_dir": str(tmp / "raw"),
+            "settings.paths.cache_dir": str(tmp / "cache"),
             "dem_sources.offline": True,
         }
     )

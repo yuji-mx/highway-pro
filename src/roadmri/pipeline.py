@@ -56,7 +56,7 @@ from roadmri.provenance import file_sha256, make_run_id, provenance_doc
 from roadmri.quality.flags import make_flag
 from roadmri.quality.levels import dem_quality, level_from_flags, osm_quality_ramp
 from roadmri.store.duckdb_store import Store
-from roadmri.store.manual_edits import apply_edits, effective_edits
+from roadmri.store.manual_edits import ACCEL_MANUAL_COLUMNS, apply_edits, effective_edits
 from roadmri.units import parse_speed_kmh
 
 log = get_logger("pipeline")
@@ -520,6 +520,9 @@ def build_tables(ctx: Ctx) -> None:
             "accel_lane_notes",
         ):
             row[k] = m.get(k)
+        row.update(
+            dict.fromkeys(ACCEL_MANUAL_COLUMNS)
+        )  # 手動の確認・修正は step_edits で反映（自動の値とは別）
         ramp_rows.append(row)
         for i, (wid, rev) in enumerate(_way_order(r)):
             rwm.append({"ramp_id": r.ramp_id, "way_id": wid, "order": i, "reversed": rev})

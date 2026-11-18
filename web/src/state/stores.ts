@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { RangeSpec } from "../api/types";
 
 /** 地図レイヤーと色分け（§11.4）。 */
-export const LAYER_KEYS = ["mainline", "ramps", "general", "ic", "jct", "sapa", "tolls", "bridges", "tunnels", "target", "warnings", "labels"] as const;
+export const LAYER_KEYS = ["mainline", "ramps", "general", "ic", "jct", "sapa", "tolls", "bridges", "tunnels", "target", "warnings", "labels", "aerial"] as const;
 export type LayerKey = (typeof LAYER_KEYS)[number];
 
 interface LayersState {
@@ -17,7 +17,8 @@ interface LayersState {
 }
 
 export const useLayers = create<LayersState>((set) => ({
-  visible: Object.fromEntries(LAYER_KEYS.map((k) => [k, true])) as Record<LayerKey, boolean>,
+  // 航空写真は外部からタイルを取得するので、利用者が選んだときだけ表示する
+  visible: Object.fromEntries(LAYER_KEYS.map((k) => [k, k !== "aerial"])) as Record<LayerKey, boolean>,
   metric: "road_type",
   glow: true,
   widthByCurvature: false,

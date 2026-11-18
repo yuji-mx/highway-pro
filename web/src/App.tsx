@@ -6,7 +6,7 @@ import { useSettings } from "./state/units";
 import { Skeleton, Toasts } from "./components/common/ui";
 import { t } from "./i18n";
 import {
-  CompareExport, FacilityDetail, FacilityList, MriView, NAV, RampDetail, RangeStats, Region, Search, Sections,
+  AccelList, CompareExport, FacilityDetail, FacilityList, MriView, NAV, RampDetail, RangeStats, Region, Search, Sections,
 } from "./routes";
 
 function lastId(prefix: string): string | null {
@@ -120,6 +120,7 @@ export default function App() {
             <Route path="/search" element={<Search />} />
             <Route path="/stats" element={<RangeStats />} />
             <Route path="/compare" element={<CompareExport />} />
+            <Route path="/accel" element={<AccelList />} />
             <Route path="*" element={<div className="page"><div className="empty">ページが見つかりません</div></div>} />
           </Routes>
         </Suspense>

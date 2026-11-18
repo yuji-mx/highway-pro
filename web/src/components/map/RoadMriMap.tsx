@@ -67,6 +67,15 @@ export interface MapSettings {
   tiles: { max_zoom: number; layers: Record<string, { min_zoom: number }> };
 }
 
+/** /api/meta の imagery（航空写真の取得元。URL は含まない）。 */
+interface Imagery {
+  id: string;
+  name: string;
+  max_zoom: number;
+  bounds: [number, number, number, number];
+  attribution: string;
+}
+
 /** /api/layers/summary（全要素を送らずに、色分けの範囲・初期表示に使う要約）。 */
 interface Summary {
   run_id: string;
@@ -92,6 +101,7 @@ export default function RoadMriMap(p: Props) {
   const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<any>("/meta") });
   const runId = meta.data?.run?.run_id ?? "";
   const cfg: MapSettings | undefined = meta.data?.map;
+  const imagery: Imagery[] = useMemo(() => meta.data?.imagery ?? [], [meta.data]);
 
   // 施設・料金所は件数が少ないので全件（GeoJSON）。道路はベクタタイルで表示範囲だけを取得する
   useEffect(() => {
@@ -161,12 +171,23 @@ export default function RoadMriMap(p: Props) {
       });
     }
     for (const n of GEOJSON_LAYERS) m.addSource(n, { type: "geojson", data: EMPTY as any });
+    // 航空写真（加速車線の確認用。/api/imagery 経由で取得・保存。最大ズームより先は拡大表示）
+    for (const im of imagery) {
+      m.addSource(`img-${im.id}`, {
+        type: "raster",
+        tiles: [`${window.location.origin}/api/imagery/${im.id}/{z}/{x}/{y}`],
+        tileSize: 256,
+        maxzoom: im.max_zoom,
+        bounds: im.bounds,
+      });
+    }
     // ベクタタイルのソースを使うレイヤーには source-layer（タイル内のレイヤー名＝ソース名）を付ける
     const add = (l: any) => m.addLayer({
       ...l,
       ...((TILE_LAYERS as readonly string[]).includes(l.source) ? { "source-layer": l.source } : {}),
       layout: { ...(l.layout ?? {}), visibility: "none" },
     });
+    for (const im of imagery) add({ id: `img-${im.id}`, type: "raster", source: `img-${im.id}`, paint: { "raster-opacity": 0.9 } });
     add({ id: "general", type: "line", source: "general", paint: { "line-color": "rgba(110,125,140,0.30)",
       "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.9, 15, 1.3] } });
     add({ id: "bridges", type: "line", source: "structures", filter: ["in", ["get", "kind"], ["literal", ["bridge", "viaduct"]]],
@@ -239,6 +260,7 @@ export default function RoadMriMap(p: Props) {
     if (!m || !built.current) return;
     const v = L.visible;
     const vis: Layer[] = [
+      ...imagery.map((im) => ({ id: `img-${im.id}`, visible: v.aerial })),
       { id: "general", visible: v.general },
       { id: "bridges", visible: v.bridges },
       { id: "tunnels", visible: v.tunnels },
@@ -262,7 +284,7 @@ export default function RoadMriMap(p: Props) {
     for (const i of [0, 1, 2]) m.setFilter(`target-${i}`, ["in", ["get", "ramp_id"], ["literal", tgt ?? []]]);
     m.setFilter("selected", ["==", ["get", "ramp_id"], p.selectedRampId ?? "__none__"]);
     m.setFilter("fac-selected", ["==", ["get", "facility_id"], p.selectedFacilityId ?? "__none__"]);
-  }, [L.visible, L.glow, L.highlightTargets, tgt, p.selectedRampId, p.selectedFacilityId, builtTick]);
+  }, [L.visible, L.glow, L.highlightTargets, tgt, p.selectedRampId, p.selectedFacilityId, builtTick, imagery]);
 
   // 重ね描き（比較・統計画面の強調表示など。件数が少ないので差し替える）
   useEffect(() => {
@@ -289,14 +311,17 @@ export default function RoadMriMap(p: Props) {
 
   // 名称（HTML 要素。オフラインでフォントグリフを使わないため）。表示範囲内のものだけ、上限件数まで作る
   // （以前は全施設分を作っていたため、広域データでは数千個の要素を毎フレーム動かしていた）
-  const labelState = useRef({ data: data.facilities, on: false, cfg });
-  labelState.current = { data: data.facilities, on: L.visible.labels && (p.showLabels ?? true), cfg };
+  // 施設の種類のチェック（IC・JCT・SA/PA）を外した施設は、記号と同じく名称も出さない
+  const typeOn = (ft: unknown) =>
+    ft === "IC" || ft === "SIC" ? L.visible.ic : ft === "JCT" ? L.visible.jct : ft === "SA" || ft === "PA" ? L.visible.sapa : false;
+  const labelState = useRef({ data: data.facilities, on: false, cfg, typeOn });
+  labelState.current = { data: data.facilities, on: L.visible.labels && (p.showLabels ?? true), cfg, typeOn };
   useEffect(() => {
     const m = mapRef.current;
     if (!m || !ready) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const update = () => {
-      const { data: fc, on, cfg: c } = labelState.current;
+      const { data: fc, on, cfg: c, typeOn: shown } = labelState.current;
       markers.current.forEach((x) => x.remove());
       markers.current = [];
       if (!on || !fc || !c) return;
@@ -306,7 +331,8 @@ export default function RoadMriMap(p: Props) {
       const center = m.getCenter();
       const cand = (fc.features as Feature[])
         .map((f) => ({ pr: f.properties ?? {}, ll: (f.geometry as any).coordinates as [number, number] }))
-        .filter(({ pr, ll }) => b.contains(ll) && z >= (pr.facility_type === "JCT" ? c.jct_label_min_zoom : c.label_min_zoom))
+        .filter(({ pr, ll }) => shown(pr.facility_type) && b.contains(ll)
+          && z >= (pr.facility_type === "JCT" ? c.jct_label_min_zoom : c.label_min_zoom))
         .sort((x, y) => Math.hypot(x.ll[0] - center.lng, x.ll[1] - center.lat) - Math.hypot(y.ll[0] - center.lng, y.ll[1] - center.lat))
         .slice(0, c.label_max_count);
       for (const { pr, ll } of cand) {
@@ -327,7 +353,7 @@ export default function RoadMriMap(p: Props) {
       clearTimeout(timer);
       m.off("moveend", later);
     };
-  }, [ready, data.facilities, L.visible.labels, p.showLabels, cfg]);
+  }, [ready, data.facilities, L.visible.labels, L.visible.ic, L.visible.jct, L.visible.sapa, p.showLabels, cfg]);
 
   // 表示範囲（要約の範囲を使う。国が複数あるときは指定の国、なければ最初の国）
   useEffect(() => {
@@ -398,5 +424,12 @@ export default function RoadMriMap(p: Props) {
     cursorMarker.current.setLngLat(cursor).addTo(m);
   }, [cursor, ready]);
 
-  return <div ref={el} className="mapbox" style={{ height: p.height ?? 360 }} data-testid={p.testId ?? "map"} />;
+  return (
+    <div style={{ position: "relative", height: p.height ?? 360 }}>
+      <div ref={el} className="mapbox" style={{ height: "100%" }} data-testid={p.testId ?? "map"} />
+      {L.visible.aerial && imagery.length > 0 && (
+        <div className="map-attr" data-testid="aerial-attribution">{imagery.map((im) => im.attribution).join(" ／ ")}</div>
+      )}
+    </div>
+  );
 }

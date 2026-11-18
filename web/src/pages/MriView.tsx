@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Map as MlMap } from "maplibre-gl";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import ProfileChart from "../components/charts/ProfileChart";
 import { ConfBar, ErrorBox, QualityBadge, ReviewBadge, TypeBadge, fmt } from "../components/common/ui";
 import { legendFor } from "../components/map/colorScales";
 import RoadMriMap, { type MapClick } from "../components/map/RoadMriMap";
+import { accelShort } from "../components/accel/accelText";
 import { t } from "../i18n";
 import { LAYER_KEYS, useLayers, useTargets } from "../state/stores";
 
@@ -53,6 +54,7 @@ function FacilityInfo({ id, onRamp }: { id: string; onRamp: (rid: string) => voi
         {(f.ramps ?? []).map((r: any) => (
           <div key={r.ramp_id} className="row" style={{ cursor: "pointer" }} onClick={() => onRamp(r.ramp_id)}>
             <span className="mono">{r.ramp_id.slice(-8)}</span><span>{t(`flow.${r.flow}`, r.flow)}</span><span className="num">{fmt(r.length_m, 0, " m")}</span>
+            {r.accel_lane_status && <span className="note" title="加速車線長">加速 {accelShort(r)}</span>}
           </div>
         ))}
       </div>
@@ -82,6 +84,10 @@ function RampInfo({ id, onBack }: { id: string; onBack: (fid: string) => void })
         <div className="kpi"><div className="l">100m 平均上り</div><div className="v">{fmt(r.grade_up_max_w100, 1)}<small>%</small></div></div>
         <div className="kpi"><div className="l">標高差</div><div className="v">{fmt(r.elev_diff_m, 1)}<small>m</small></div></div>
       </div>
+      {r.accel_lane_status && (
+        <div style={{ marginTop: 4 }} data-testid="mri-accel">加速車線長：<b className="num">{accelShort(r)}</b>
+          {r.accel_lane_status === "excluded" && r.accel_lane_reason_text && <div className="note">{r.accel_lane_reason_text}</div>}</div>
+      )}
       {prof.data && <ProfileChart points={prof.data.points} height={130} testId="mini-profile" />}
       {(r.flags ?? []).map((x: any) => <div key={x.flag_id} className="warn">⚠ {x.message_ja}</div>)}
       <div className="row" style={{ marginTop: 8 }}>
@@ -106,6 +112,23 @@ export default function MriView() {
   const select = (k: "facility" | "ramp", id: string) => setSp({ ...(country ? { country } : {}), kind: k, sel: id });
   const onClick = (c: MapClick) => select(c.kind, c.id);
   const legend = legendFor(L.metric, undefined, shapes);
+  // 現在のズーム（最小ズームのあるレイヤーの表示条件を示すため）
+  const [zoom, setZoom] = useState<number | null>(null);
+  const onMap = useCallback((m: MlMap) => {
+    mapRef.current = m;
+    const upd = () => setZoom(Math.round(m.getZoom() * 10) / 10);
+    m.on("zoomend", upd);
+    m.on("load", upd);
+  }, []);
+  const tl = meta.data?.map?.tiles?.layers ?? {};
+  const minZoom: Partial<Record<string, number>> = {
+    ramps: tl.ramps?.min_zoom,
+    target: tl.ramps?.min_zoom,
+    general: tl.general?.min_zoom,
+    bridges: tl.structures?.min_zoom,
+    tunnels: tl.structures?.min_zoom,
+    labels: meta.data?.map ? Math.min(meta.data.map.label_min_zoom, meta.data.map.jct_label_min_zoom) : undefined,
+  };
   const exportPng = () => {
     const c = mapRef.current?.getCanvas();
     if (!c) return;
@@ -118,14 +141,24 @@ export default function MriView() {
     <div style={{ position: "relative", height: "100%" }}>
       <RoadMriMap height="100%" onClick={onClick} onCursor={setCursor} targetRampIds={targets.rampIds}
         selectedFacilityId={kind === "facility" ? sel : null} selectedRampId={kind === "ramp" ? sel : null}
-        onMap={(m) => (mapRef.current = m)} testId="mri-map" country={country} />
+        onMap={onMap} testId="mri-map" country={country} />
       <div className="float" style={{ left: 10, top: 10, width: 190 }} data-testid="layer-panel">
         <div className="note">レイヤー</div>
-        {LAYER_KEYS.map((k) => (
-          <label key={k} className="row" style={{ gap: 4, fontSize: 12 }}>
-            <input type="checkbox" checked={L.visible[k]} onChange={() => L.toggle(k)} />{t(`layer.${k}`)}
-          </label>
-        ))}
+        {LAYER_KEYS.map((k) => {
+          // 表示に最小ズームがあるレイヤーは、それより広域では薄く表示して条件を示す（チェックしても何も出ないため）
+          const minZ = minZoom[k];
+          const hidden = minZ != null && zoom != null && zoom < minZ;
+          const noTarget = k === "target" && targets.rampIds.length === 0;
+          return (
+            <label key={k} className="row" style={{ gap: 4, fontSize: 12, opacity: hidden || noTarget ? 0.5 : 1 }}
+              title={noTarget ? "条件検索の結果で「地図で強調」したランプを表示します" : hidden ? `ズーム ${minZ} 以上で表示します` : undefined}
+              data-testid={`layer-${k}`}>
+              <input type="checkbox" checked={L.visible[k]} onChange={() => L.toggle(k)} />{t(`layer.${k}`)}
+              {k === "target" && <span className="mut">（{targets.rampIds.length}）</span>}
+              {hidden && <span className="mut" style={{ fontSize: 10 }}>ズーム{minZ}以上</span>}
+            </label>
+          );
+        })}
         <div className="note" style={{ marginTop: 6 }}>色分け指標</div>
         <select value={L.metric} onChange={(e) => L.setMetric(e.target.value)} data-testid="metric-select" style={{ width: "100%" }}>
           {METRICS.map((m) => <option key={m} value={m} disabled={m === "drive"}>{t(`metric.${m}`)}</option>)}

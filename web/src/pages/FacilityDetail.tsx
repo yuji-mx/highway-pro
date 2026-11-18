@@ -6,6 +6,7 @@ import { ConfBar, ErrorBox, QualityBadge, ReviewBadge, Skeleton, TypeBadge, fmt 
 import RoadMriMap from "../components/map/RoadMriMap";
 import SimilarFacilities from "../components/similar/SimilarFacilities";
 import DataTable, { type Col } from "../components/tables/DataTable";
+import { accelShort } from "../components/accel/accelText";
 import { t } from "../i18n";
 import { useCompareTray, useSimilar, useToast } from "../state/stores";
 
@@ -115,6 +116,7 @@ export default function FacilityDetail() {
     { key: "grade_up_max_w100", label: "100m上り", num: true },
     { key: "grade_down_max_w100", label: "最大下り", num: true },
     { key: "elev_diff_m", label: "標高差", num: true, unit: "m" },
+    { key: "accel_lane_len_m", label: "加速車線長", get: (r) => accelShort(r) },
     { key: "quality_level", label: "品質", render: (r) => <QualityBadge q={r.quality_level} /> },
     { key: "dem_quality", label: "DEM品質", render: (r) => <QualityBadge q={r.dem_quality} /> },
   ];

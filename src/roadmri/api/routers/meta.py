@@ -34,4 +34,9 @@ def meta(s: AppState = Depends(state)) -> dict[str, Any]:
         "has_data": counts["facility"] > 0,
         "map": s.cfg.settings.get("map", {}),
         "list": s.cfg.settings.get("list", {}),
+        # 航空写真の出典など（取得元の URL は返さない。タイルは /api/imagery 経由）
+        "imagery": [
+            {k: v for k, v in {"id": sid, **spec}.items() if k != "url"}
+            for sid, spec in (s.cfg.settings.get("imagery", {}).get("sources") or {}).items()
+        ],
     }

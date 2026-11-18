@@ -227,8 +227,106 @@ test("14. ランプ詳細に加速車線長（判定方法・信頼度）、測�
   await expect(page.getByTestId("accel-lane")).toHaveText("—");
 });
 
+test("15. 加速車線を地図で修正：手動の値は自動の値と別に保存され、差を表示。取り消しで元に戻る", async ({ page }) => {
+  const f = await facility(page, "宇都宮");
+  const ramp = (await api(page, `/facilities/${f.facility_id}`)).ramps.find((r: any) => r.accel_lane_status === "measured");
+  const a = await api(page, `/ramps/${ramp.ramp_id}/accel_lane`);
+  // 始点は自動の始点より少し上流（道筋の頂点）、終点は自動の終点
+  const path: [number, number][] = a.path.coordinates;
+  const d2 = (p: number[]) => (p[0] - a.auto.start[0]) ** 2 + (p[1] - a.auto.start[1]) ** 2;
+  const i = path.reduce((best, p, k) => (d2(p) < d2(path[best]) ? k : best), 0);
+  const start = path[Math.max(0, i - 2)];
+  await page.goto(`/ramp/${ramp.ramp_id}`);
+  await expect(page.getByTestId("accel-panel")).toContainText("加速車線の確認・修正");
+  await expect(page.getByTestId("accel-manual-status")).toHaveText("未確認");
+  await page.getByTestId("accel-zoom").click();
+  await page.getByTestId("accel-correct").click();
+  await clickLonLat(page, "ramp-map", start[0], start[1]);
+  await expect(page.getByTestId("accel-picking")).toContainText("終点");
+  await clickLonLat(page, "ramp-map", a.auto.end[0], a.auto.end[1]);
+  const preview = page.getByTestId("accel-preview-length");
+  await expect(preview).toBeVisible();
+  const previewM = Number((await preview.textContent())!.replace(/[^0-9.]/g, ""));
+  expect(previewM).toBeGreaterThan(a.auto.length_m);
+  await page.getByTestId("accel-comment").fill("航空写真で確認");
+  await page.getByTestId("accel-save").click();
+  await expect(page.getByTestId("accel-manual-status")).toHaveText("修正");
+  await expect(page.getByTestId("accel-diff")).toContainText("+");
+  // 自動の値は変わらない
+  const after = await api(page, `/ramps/${ramp.ramp_id}/accel_lane`);
+  expect(after.auto.length_m).toBe(a.auto.length_m);
+  expect(after.manual.length_m).toBeCloseTo(previewM, -1);
+  await expect(page.getByTestId("accel-history")).toContainText("航空写真で確認");
+  await page.getByTestId("accel-revert").click();
+  await expect(page.getByTestId("accel-manual-status")).toHaveText("未確認");
+  // 航空写真の切替（出典を表示）
+  await page.getByTestId("accel-aerial").click();
+  await expect(page.getByTestId("aerial-attribution")).toContainText("国土地理院");
+  await page.getByTestId("accel-aerial").click();
+});
+
+test("16. 加速車線一覧：自動・手動・差・信頼度・確認状態を比較し、要約と CSV を出す", async ({ page }) => {
+  const list = await api(page, "/accel_lanes?auto_status=measured&limit=50");
+  const [r1, r2] = list.items;
+  const edits: string[] = [];
+  edits.push((await api(page, `/ramps/${r1.ramp_id}/accel_lane`, { action: "confirmed" })).manual.edit_id);
+  const g = await api(page, `/ramps/${r2.ramp_id}/accel_lane`);
+  const end = g.path.coordinates[g.path.coordinates.length - 1];
+  edits.push((await api(page, `/ramps/${r2.ramp_id}/accel_lane`, { action: "corrected", start: g.auto.start, end, comment: "e2e" })).manual.edit_id);
+  try {
+    await page.goto("/mri");
+    await page.getByTestId("nav-10").click();
+    await expect(page).toHaveURL(/\/accel/);
+    const table = page.getByTestId("accel-table");
+    await expect(table.locator("tbody tr").first()).toBeVisible();
+    await expect(page.getByTestId("accel-reviewed-count")).toHaveText("2");
+    // 全体の行：件数 2、偏りは正（修正で延ばした分）
+    const overall = page.getByTestId("accel-stats").locator("tbody tr").first();
+    await expect(overall.locator("td").nth(1)).toHaveText("2");
+    await expect(overall.locator("td").nth(2)).toContainText("+");
+    await expect(page.getByTestId("accel-scatter")).toBeVisible();
+    await page.getByTestId("accel-filter-review").selectOption("reviewed");
+    await expect(table.locator("tbody tr")).toHaveCount(2);
+    await expect(table).toContainText("自動値どおり");
+    await expect(table).toContainText("修正");
+    await table.locator("th", { hasText: "差（手動−自動）" }).click();
+    await expect(page).toHaveURL(/sort=diff_m/);
+    const csv = await page.request.get((await page.getByTestId("accel-csv").getAttribute("href"))!);
+    const lines = (await csv.text()).replace(/^\uFEFF/, "").trim().split("\n");
+    expect(lines[0]).toContain("差_手動-自動_m");
+    expect(lines.length - 1).toBe(2);
+    await table.locator("tbody tr").first().click();
+    await expect(page).toHaveURL(/\/ramp\//);
+    await expect(page.getByTestId("accel-panel")).toBeVisible();
+  } finally {
+    for (const e of edits) await api(page, `/edits/${e}/revert`, {});
+  }
+});
+
+test("17. 道路MRIビュー：種類のチェックで名称も消える、最小ズーム未満のレイヤーは条件を表示、ランプ情報に加速車線長", async ({ page }) => {
+  const f = await facility(page, "宇都宮");
+  await page.goto("/mri");
+  await page.waitForFunction(() => (window as any).__roadmriMaps?.["mri-map"]?.loaded());
+  await page.evaluate(([lon, lat]) => (window as any).__roadmriMaps["mri-map"].jumpTo({ center: [lon, lat], zoom: 14 }), [f.lon, f.lat]);
+  await expect(page.locator(".maplabel", { hasText: "宇都宮IC" })).toHaveCount(1);
+  await page.getByTestId("layer-ic").locator("input").uncheck();
+  await expect(page.locator(".maplabel", { hasText: "宇都宮IC" })).toHaveCount(0);
+  await page.getByTestId("layer-ic").locator("input").check();
+  await expect(page.locator(".maplabel", { hasText: "宇都宮IC" })).toHaveCount(1);
+  // 広域（ズーム 9）では一般道・橋梁は表示されないので、条件を示す
+  await page.evaluate(() => (window as any).__roadmriMaps["mri-map"].zoomTo(9, { duration: 0 }));
+  await expect(page.getByTestId("layer-general")).toContainText("ズーム10以上");
+  await expect(page.getByTestId("layer-bridges")).toContainText("ズーム11以上");
+  await expect(page.getByTestId("layer-mainline")).not.toContainText("ズーム");
+  await expect(page.getByTestId("layer-target")).toContainText("（0）");
+  // ランプ情報に加速車線長
+  const ramp = (await api(page, `/facilities/${f.facility_id}`)).ramps.find((r: any) => r.accel_lane_status === "measured");
+  await page.goto(`/mri?kind=ramp&sel=${ramp.ramp_id}`);
+  await expect(page.getByTestId("mri-accel")).toContainText(`${Math.round(ramp.accel_lane_len_m)} m`);
+});
+
 test("オフライン：外部（CDN 等）へのリクエストが 0 件", async ({ page }) => {
-  for (const p of ["/region", "/mri", "/facilities", "/sections", "/search", "/stats", "/compare"]) {
+  for (const p of ["/region", "/mri", "/facilities", "/sections", "/search", "/stats", "/compare", "/accel"]) {
     await page.goto(p);
     await page.waitForLoadState("networkidle");
   }
