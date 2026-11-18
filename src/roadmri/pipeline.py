@@ -1262,6 +1262,10 @@ def run_multi(
     started = time.time()
     ts = STEP_ALIASES.get(to_step or "publish", to_step or "publish")
     last = "quality" if STEPS.index(ts) >= STEPS.index("quality") else ts
+    fs = STEP_ALIASES.get(from_step or "ingest", from_step or "ingest")
+    if fs not in STEPS:
+        raise ValueError(f"段の指定が不正です（{', '.join(STEPS)}）")
+    resume_combined = STEPS.index(fs) > STEPS.index("quality") and last == "quality"
     ctxs: list[Ctx] = []
     for k, rid in enumerate(regions):
         sub_progress = (
@@ -1269,7 +1273,10 @@ def run_multi(
             if progress
             else None
         )
-        run_pipeline(cfg, rid, store, from_step, last, source, sub_progress)
+        # 手動修正の適用・公開（edits / publish）から再開する場合、地域ごとの処理は quality 段までで保存済み
+        # （地域ごとの edits 段の中間成果物はない）ので、地域ごとの処理はせずに quality 段の結果を読む
+        if not resume_combined:
+            run_pipeline(cfg, rid, store, from_step, last, source, sub_progress)
         ctxs.append(load_state(cfg, rid, last))
     if STEPS.index(ts) < STEPS.index("edits"):
         return {"run_id": None, "regions": regions, "counts": _sum_counts(ctxs), "stopped_at": ts}
