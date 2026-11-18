@@ -187,7 +187,12 @@ export default function AccelList() {
         </div>
       )}
 
-      {q.isLoading || !pageSize ? <Skeleton h={300} /> : q.error ? <ErrorBox error={q.error} retry={() => q.refetch()} /> : !q.data.items.length ? <Empty /> : (
+      {q.isLoading || !pageSize ? <Skeleton h={300} /> : q.error ? <ErrorBox error={q.error} retry={() => q.refetch()} /> : !q.data.items.length ? (
+        filters.toString() ? <Empty text="条件に合う加速車線がありません。" /> : (
+          <div data-testid="accel-no-data"><Empty text="加速車線のデータがありません。加速車線の算出より前の版で作ったデータの場合は、
+            metrics 段から作り直してください（例：uv run roadmri build --range <地域> --from-step metrics）。" /></div>
+        )
+      ) : (
         <>
           <DataTable rows={q.data.items} cols={COLS} onRow={(r) => nav(`/ramp/${r.ramp_id}`)} maxHeight="calc(100vh - 260px)"
             testId="accel-table" serverSort={sort} onServerSort={onSort} />

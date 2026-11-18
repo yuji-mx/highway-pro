@@ -209,6 +209,20 @@ def test_reproducibility(tmp_path, cfg):
     assert r3["run_id"] != r1["run_id"]
 
 
+def test_multi_region_resume_from_publish(tmp_path, cfg):
+    """複数地域の build を公開段・手動修正段から再開できる（地域ごとの edits 段の中間成果物はない）。"""
+    from tests.conftest import _cfg_for
+
+    c = _cfg_for(tmp_path, cfg)
+    st = Store(c.path("processed_db"))
+    first = run_pipeline(c, "synthetic,tochigi_small", st)
+    for step in ("publish", "edits"):
+        res = run_pipeline(c, "synthetic,tochigi_small", st, from_step=step)
+        assert res["run_id"] == first["run_id"] and res["counts"] == first["counts"]
+    assert int(st.scalar("SELECT count(DISTINCT country) FROM facility")) >= 1
+    assert int(st.scalar("SELECT count(*) FROM facility")) == first["counts"]["facilities"]
+
+
 def test_resume_from_step(tmp_path, cfg):
     from tests.conftest import _cfg_for
 
