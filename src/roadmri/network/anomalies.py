@@ -14,6 +14,27 @@ ANOMALY_FLAGS: dict[str, tuple[str, str]] = {
 }
 
 
+# 画面の一覧に出す短い名称（SPEC §4.5.5 の条件の言い換え。詳しい説明は ANOMALY_FLAGS の文、元のコードも併記する）
+ANOMALY_LABELS: dict[str, str] = {
+    "NO_PATH": "経路なし",
+    "ONEWAY_VIOLATION": "一方通行で到達不可",
+    "VIA_NON_MOTORWAY": "本線外を経由",
+    "EXCESSIVE_DETOUR": "遠回り（直線距離比）",
+    "NAME_COLLISION": "同名施設あり",
+    "MAINLINE_GAP": "本線の途切れ",
+    "NETWORK_DISCONTINUITY": "ネットワークの分断",
+    "OUT_OF_RANGE": "範囲外の施設",
+}
+
+
+def describe() -> dict[str, dict[str, str]]:
+    """画面用：コード → 重大度・短い名称・説明。"""
+    return {
+        code: {"severity": sev, "label": ANOMALY_LABELS.get(code, code), "message": msg}
+        for code, (sev, msg) in ANOMALY_FLAGS.items()
+    }
+
+
 def severity(code: str) -> str:
     return ANOMALY_FLAGS.get(code, ("info", ""))[0]
 

@@ -43,7 +43,16 @@ map:                       # 地図表示（Web UI）。広域データでの描
   jct_label_min_zoom: 9    # JCT の名称を表示する最小ズーム
   label_max_count: 300     # 同時に表示する名称の上限（表示範囲内のものだけ作る）
   label_update_delay_ms: 150   # 地図の移動が止まってから名称を更新するまでの待ち時間
+  label_max_chars: 16      # これより長い名称は、地図では末尾の括弧書き（行先など）を省く（正式名称はホバー・情報パネル）
+  label_gap_px: 3          # 名称どうし・施設の記号との間隔。重なる名称は出さない（記号は残る）
+  label_mark_px: 5         # 施設の記号の半径（名称を記号の上に重ねない）
   overlay_lod: 16          # 範囲統計比較の地図で重ね描きする本線のまとめ数（tiles.layers.mainline.lod にある値）
+  tooltip:                 # 地図のホバー表示（施設：名称・種別・形状、ランプ：ID・区分・長さ）
+    show_delay_ms: 500     # 対象の上でマウスを止めてから表示するまで
+    hide_delay_ms: 200     # 対象から離れてから消すまで（対象の上にいる間は表示を保つ）
+    offset_px: 14          # カーソルからの距離（道路に重ならないように。画面端では自動で向きを変える）
+    hit_px: 6              # ランプ（線）を拾う範囲
+    facility_hit_px: 9     # 施設（点）を拾う範囲。この範囲では施設をランプより優先する
   glow_min_zoom: 10        # 発光（線の重ね描き）を行う最小ズーム。これより広域では 1 本の線だけ描く
   tiles:                   # 道路はベクタタイル（/api/tiles/{layer}/{z}/{x}/{y}.pbf）で表示範囲だけ配信する
     max_zoom: 14           # タイルを作る最大ズーム（これより拡大すると 14 のタイルを拡大して描く）
@@ -84,4 +93,7 @@ imagery:                   # 地図の背景の航空写真（加速車線の確
       bounds: [-179.2, 18.9, -66.9, 71.4]
       attribution: "USGS The National Map: Orthoimagery"
   browser_cache_days: 30   # ブラウザにタイルを保持させる日数
+areas:                     # 地域・路線選択の地域（日本・北米）。範囲の確認と、カスタム範囲の DEM・国の既定に使う
+  JP: {label: 日本, countries: [JP], bounds: [122.9, 20.4, 154.0, 45.6], dem: jp, country: JP, example_bbox: "139.72,36.515,139.90,36.655"}
+  NA: {label: 北米, countries: [US, CA], bounds: [-170.0, 14.0, -50.0, 72.0], dem: us, country: US, example_bbox: "-83.77,42.215,-83.645,42.245"}
 

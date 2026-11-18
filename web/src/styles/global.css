@@ -16,7 +16,7 @@ input[type=checkbox], input[type=radio] { accent-color: var(--cyan); }
 .num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .mut { color: var(--mut); } .dim { color: var(--dim); }
 .app { display: grid; grid-template-rows: 50px 1fr; grid-template-columns: 196px 1fr; height: 100%; }
-.hdr { grid-column: 1 / 3; display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.hdr { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .hdr > * { flex-shrink: 0; }
 .hdr .chips { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
 .hdr button { white-space: nowrap; }
@@ -103,3 +103,36 @@ tr.hl td { background: rgba(56, 225, 255, .07); }
 }
 .map-attr { position: absolute; right: 6px; bottom: 4px; font-size: 10px; color: #dfe6ee; background: rgba(0, 0, 0, 0.55); padding: 1px 6px; border-radius: 3px; pointer-events: none; }
 .mri-pop { pointer-events: none; }   /* ホバーの説明は地図のクリック（始点・終点の指定など）を妨げない */
+.mri-pop .maplibregl-popup-content { background: rgba(17, 22, 29, 0.96); color: var(--tx); border: 1px solid var(--line2); border-radius: 6px;
+  padding: 6px 9px; font-size: 12px; line-height: 1.45; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); overflow-wrap: anywhere; }
+.mri-pop .maplibregl-popup-content b { color: #fff; }
+.mri-pop .maplibregl-popup-content div { color: var(--mut); }
+.mri-pop.maplibregl-popup-anchor-bottom .maplibregl-popup-tip, .mri-pop.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.mri-pop.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--line2); }
+.mri-pop.maplibregl-popup-anchor-top .maplibregl-popup-tip, .mri-pop.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.mri-pop.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--line2); }
+.mri-pop.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--line2); }
+.mri-pop.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--line2); }
+/* 道路MRIビュー右側：情報パネルと凡例を縦に並べ、重ならないようにする（パネルは残りの高さでスクロール） */
+.mri-right { position: absolute; z-index: 5; right: 10px; top: 10px; bottom: 24px; width: 340px; max-width: calc(100% - 20px);
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+.mri-right > * { pointer-events: auto; }
+.mri-right .float { position: relative; }
+.mri-right .info { width: 100%; min-height: 0; flex: 0 1 auto; overflow: auto; }
+.mri-right .legend { margin-top: auto; flex: none; max-width: 100%; }
+/* 情報パネルの表は折り返す（長い施設名・行先名が右端で切れないように） */
+.info table.dt td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.info table.dt td.n, .info .num, .info .conf { white-space: nowrap; overflow-wrap: normal; }   /* 数値と単位は途中で折り返さない */
+.info h3 { overflow-wrap: anywhere; }
+@media (max-width: 1023px) {
+  .mri-layers { width: 160px !important; max-height: calc(100% - 90px); overflow: auto; }
+  .mri-right { width: 300px; }
+}
+@media (max-width: 640px) {
+  /* 狭い画面：レイヤー一覧は畳める大きさにし、情報パネルは地図の下側に重ねる */
+  .mri-layers { max-height: 40%; }
+  .mri-right { top: auto; height: 55%; width: calc(100% - 20px); }
+  .mri-right .info + .legend { display: none; }   /* 情報パネルを開いている間は凡例を隠す */
+  .mri-tools { left: auto !important; right: 10px; transform: none !important; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 140px); }
+  .mri-layers { width: 120px !important; }
+}

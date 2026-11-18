@@ -8,6 +8,7 @@ import { Empty, ErrorBox, Kpi, QualityBadge, Skeleton, fmt } from "../components
 import RoadMriMap, { type Overlay } from "../components/map/RoadMriMap";
 import DataTable, { type Col } from "../components/tables/DataTable";
 import { t } from "../i18n";
+import { displayName } from "../components/common/names";
 
 const DEF_JA: Record<string, string> = {
   standard: "標準（分流・合流の中点間）", diverge_to_diverge: "分流点→分流点", merge_to_diverge: "合流点→分流点（純粋な本線区間）",
@@ -16,6 +17,22 @@ const DEF_JA: Record<string, string> = {
 };
 const SEV: Record<string, string> = { error: "要対応", warn: "警告", info: "情報" };
 
+/** 経路異常の定義（/api/meta の anomaly_flags。SPEC §4.5.5）。 */
+interface AnomalyDef { severity: string; label: string; message: string }
+
+/** 異常の表示：日本語の短い名称。説明と元のコードはホバー（title）で確認できる。 */
+function Anomalies({ codes, af }: { codes?: string[] | null; af: Record<string, AnomalyDef> }) {
+  if (!codes?.length) return <>—</>;
+  return (
+    <span className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+      {codes.map((c) => (
+        <span key={c} className={`badge ${af[c]?.severity === "error" ? "b-low" : "b-medium"}`} title={`${af[c]?.message ?? ""}（${c}）`}
+          data-testid="anomaly">{af[c]?.label ?? c}</span>
+      ))}
+    </span>
+  );
+}
+
 function SectionTab() {
   const [sp, setSp] = useSearchParams();
   const list = useQuery({ queryKey: ["sections-all"], queryFn: () => api.get<any>("/sections") });
@@ -23,6 +40,7 @@ function SectionTab() {
   const fac = sp.get("facility");
   const route = sp.get("route") ?? items[0]?.route_ref ?? "";
   const id = sp.get("id") ?? (fac ? items.find((s) => s.from_facility_id === fac)?.section_id : items.find((s) => s.route_ref === route)?.section_id);
+  const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<any>("/meta") });
   const sec = useQuery({ queryKey: ["section", id], queryFn: () => api.get<any>(`/sections/${encodeURIComponent(id!)}`), enabled: !!id });
   const prof = useQuery({ queryKey: ["secprof", id], queryFn: () => api.get<any>(`/sections/${encodeURIComponent(id!)}/profile`), enabled: !!id });
   const secFocus = useMemo<[number, number, number, number] | null>(() => {
@@ -38,22 +56,24 @@ function SectionTab() {
   if (!items.length) return <Empty />;
   const routeItems = items.filter((s) => s.route_ref === route);
   const s = sec.data;
-  const fromOpts = [...new Map(routeItems.map((x) => [x.from_facility_id, x.from_name])).entries()];
+  const af: Record<string, AnomalyDef> = meta.data?.anomaly_flags ?? {};
+  const fromOpts = [...new Map(routeItems.map((x) => [x.from_facility_id, displayName(x.from_name)])).entries()];
   const pick = (from: string, to?: string) => {
     const c = routeItems.find((x) => x.from_facility_id === from && (!to || x.to_facility_id === to));
     if (c) setSp({ route, id: c.section_id });
   };
   const cols: Col<any>[] = [
     { key: "direction", label: "方向", get: (r) => t(`dir.${r.direction}`, r.direction) },
-    { key: "from_name", label: "起点" }, { key: "to_name", label: "終点" },
+    { key: "from_name", label: "起点", get: (r) => displayName(r.from_name) }, { key: "to_name", label: "終点", get: (r) => displayName(r.to_name) },
     { key: "dist_standard_m", label: "距離", unit: "km", num: true, get: (r) => (r.dist_standard_m ?? 0) / 1000 },
     { key: "grade_up_max_w100", label: "最大上り(100m)", num: true }, { key: "grade_down_max_w100", label: "最大下り(100m)", num: true },
     { key: "elev_gain_m", label: "累積上昇", num: true, unit: "m" }, { key: "min_radius_m", label: "最小R", num: true, unit: "m" },
-    { key: "anomaly_flags", label: "異常", get: (r) => (r.anomaly_flags ?? []).join(", ") },
+    { key: "anomaly_flags", label: "異常", get: (r) => (r.anomaly_flags ?? []).map((c: string) => af[c]?.label ?? c).join("、"),
+      render: (r) => <Anomalies codes={r.anomaly_flags} af={af} /> },
     { key: "quality_level", label: "品質", render: (r) => <QualityBadge q={r.quality_level} /> },
   ];
   const pts = prof.data?.points ?? [];
-  const markers: Marker[] = s ? [{ s: 0, label: s.from_name ?? "起点", color: "#ffb53d" }, { s: pts.length ? pts[pts.length - 1].s_m : 0, label: s.to_name ?? "終点", color: "#ffb53d" }] : [];
+  const markers: Marker[] = s ? [{ s: 0, label: s.from_name ? displayName(s.from_name) : "起点", color: "#ffb53d" }, { s: pts.length ? pts[pts.length - 1].s_m : 0, label: s.to_name ?? "終点", color: "#ffb53d" }] : [];
   return (
     <div className="stack">
       <div className="card row">
@@ -63,7 +83,12 @@ function SectionTab() {
         <label>終点 <select value={s?.to_facility_id ?? ""} onChange={(e) => pick(s.from_facility_id, e.target.value)}>
           {routeItems.filter((x) => x.from_facility_id === s?.from_facility_id).map((x) => <option key={x.to_facility_id} value={x.to_facility_id}>{x.to_name}</option>)}</select></label>
         <button disabled={!s?.reverse_section_id} onClick={() => setSp({ route, id: s.reverse_section_id })} data-testid="sec-reverse">⇄ 方向反転</button>
-        {s && <span className="badge b-ok">{t(`dir.${s.direction}`, s.direction)}（{s.to_name}方面）</span>}
+        {s && <span className="badge b-ok">{t(`dir.${s.direction}`, s.direction)}（{displayName(s.to_name)}方面）</span>}
+        {s?.anomaly_flags?.length > 0 && (
+          <span className="note" data-testid="anomaly-detail">
+            {s.anomaly_flags.map((c: string) => <div key={c}>⚠ {af[c]?.label ?? c}：{af[c]?.message ?? ""} <span className="mono mut">（{c}）</span></div>)}
+          </span>
+        )}
       </div>
       {sec.isLoading || !s ? <Skeleton h={300} /> : sec.error ? <ErrorBox error={sec.error} /> : (
         <>
@@ -86,7 +111,7 @@ function SectionTab() {
               {(s.distances ?? []).map((d: any) => <tr key={d.definition}><td>{DEF_JA[d.definition] ?? d.definition}</td><td className="num">{fmt(d.distance_m / 1000, 3, " km")}</td></tr>)}
             </tbody></table></div>
             <div className="card"><h3>経路異常</h3>
-              {(s.flags ?? []).length ? (s.flags ?? []).map((f: any) => <div key={f.flag_id} className={f.severity === "error" ? "error" : "warn"} style={{ textAlign: "left", border: "none", padding: 2 }}>[{SEV[f.severity]}] {f.code}：{f.message_ja}</div>) : <div className="note">異常はありません。</div>}
+              {(s.flags ?? []).length ? (s.flags ?? []).map((f: any) => <div key={f.flag_id} className={f.severity === "error" ? "error" : "warn"} style={{ textAlign: "left", border: "none", padding: 2 }}>[{SEV[f.severity]}] {f.message_ja} <span className="mono mut" style={{ fontSize: 10 }}>（{f.code}）</span></div>) : <div className="note">異常はありません。</div>}
             </div>
           </div>
         </>

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../api/client";
 import { t } from "../../i18n";
 import { ErrorBox, Skeleton, fmt } from "../common/ui";
+import { displayName } from "../common/names";
 
 /** 類似ランプ一覧（§4.12.1）。特徴量ごとの寄与を併記する。 */
 export default function SimilarRamps({ rampId }: { rampId: string }) {
@@ -19,7 +20,7 @@ export default function SimilarRamps({ rampId }: { rampId: string }) {
             const top = Object.entries(r.contributions as Record<string, number>).sort((a, b) => b[1] - a[1])[0];
             return (
               <tr key={r.ramp_id} className="click" onClick={() => nav(`/ramp/${r.ramp_id}`)}>
-                <td className="n">{i + 1}</td><td className="mono">{r.ramp_id}</td><td>{r.facility_name}</td>
+                <td className="n">{i + 1}</td><td className="mono">{r.ramp_id}</td><td>{displayName(r.facility_name)}</td>
                 <td>{t(`flow.${r.flow}`, r.flow)}</td>
                 <td><span className="simbar"><i style={{ width: `${r.similarity * 100}%` }} /></span> <span className="num">{fmt(r.similarity, 2)}</span></td>
                 <td className="n">{fmt(r.length_m, 0)}</td><td className="n">{fmt(r.min_radius_m, 0)}</td><td className="n">{fmt(r.grade_up_max_w100, 2)}</td>

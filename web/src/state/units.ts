@@ -4,28 +4,38 @@ import { create } from "zustand";
 export type Units = "metric" | "imperial";
 
 const KEY = "roadmri.units";
-function initial(): Units {
+/** 利用者が選んだ単位（保存されていなければ null＝データに合わせる）。 */
+function stored(): Units | null {
   try {
-    return localStorage.getItem(KEY) === "imperial" ? "imperial" : "metric";
+    const v = localStorage.getItem(KEY);
+    return v === "imperial" || v === "metric" ? v : null;
   } catch {
-    return "metric";
+    return null;
   }
 }
 
 interface SettingsState {
   units: Units;
+  /** 利用者が明示的に選んだか（選んだ単位はデータの既定で上書きしない） */
+  explicit: boolean;
   setUnits: (u: Units) => void;
+  /** データに合わせた既定（米国のみなら imperial）。利用者が選んでいれば何もしない */
+  applyDefault: (u: Units) => void;
 }
 
-export const useSettings = create<SettingsState>((set) => ({
-  units: initial(),
+export const useSettings = create<SettingsState>((set, get) => ({
+  units: stored() ?? "metric",
+  explicit: stored() !== null,
   setUnits: (u) => {
     try {
       localStorage.setItem(KEY, u);
     } catch {
       /* 保存できない環境では無視 */
     }
-    set({ units: u });
+    set({ units: u, explicit: true });
+  },
+  applyDefault: (u) => {
+    if (!get().explicit && get().units !== u) set({ units: u });
   },
 }));
 

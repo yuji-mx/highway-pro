@@ -11,6 +11,7 @@ import RoadMriMap, { type Overlay } from "../components/map/RoadMriMap";
 import SimilarRamps from "../components/similar/SimilarRamps";
 import { t } from "../i18n";
 import { useCompareTray, useSimilar } from "../state/stores";
+import { displayName } from "../components/common/names";
 
 export default function RampDetail() {
   const { id = "" } = useParams();
@@ -59,7 +60,7 @@ export default function RampDetail() {
             {sib.map((s) => <option key={s} value={s}>{s.slice(-8)}</option>)}
           </select>
           <button disabled={i < 0 || i >= sib.length - 1} onClick={() => nav(`/ramp/${sib[i + 1]}`)}>次 →</button>
-          <button onClick={() => nav(`/facility/${r.facility_id}`)}>施設へ（{r.facility?.name}）</button>
+          <button onClick={() => nav(`/facility/${r.facility_id}`)}>施設へ（{displayName(r.facility?.name)}）</button>
           <button onClick={() => setShowSim(!showSim)} data-testid="btn-similar-ramps">類似ランプ</button>
           <button onClick={() => { setSim({ kind: "facility", id: r.facility_id }); nav("/search?mode=facility&similar=1"); }} data-testid="btn-similar-facility">類似IC/JCTを検索</button>
           <button onClick={() => add({ facility_id: r.facility_id, name: r.facility?.name })}>＋比較</button>

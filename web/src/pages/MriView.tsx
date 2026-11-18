@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Map as MlMap } from "maplibre-gl";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import ProfileChart from "../components/charts/ProfileChart";
@@ -10,6 +10,7 @@ import RoadMriMap, { type MapClick } from "../components/map/RoadMriMap";
 import { accelShort } from "../components/accel/accelText";
 import { t } from "../i18n";
 import { LAYER_KEYS, useLayers, useTargets } from "../state/stores";
+import { displayName } from "../components/common/names";
 
 const METRICS = ["road_type", "grade", "elevation", "radius", "maxspeed", "lanes", "flow", "shape", "quality", "drive"];
 
@@ -24,7 +25,7 @@ function FacilityInfo({ id, onRamp }: { id: string; onRamp: (rid: string) => voi
   const f = q.data;
   return (
     <div data-testid="info-panel">
-      <h3 style={{ margin: 0 }}>{f.name ?? "名称不明"} <TypeBadge type={f.facility_type} /></h3>
+      <h3 style={{ margin: 0 }}>{displayName(f.name)} <TypeBadge type={f.facility_type} /></h3>
       <div className="note">{(f.route_refs ?? []).join(" / ")} ・ 出口番号 {f.exit_number ?? "—"}</div>
       <table className="dt" style={{ marginTop: 6 }}>
         <tbody>
@@ -41,7 +42,7 @@ function FacilityInfo({ id, onRamp }: { id: string; onRamp: (rid: string) => voi
             <tr key={s.section_id} className="click" onMouseEnter={() => setHoverSec(s.section_id)}
               onClick={() => nav(`/sections?id=${encodeURIComponent(s.section_id)}`)}>
               <td>{t(`dir.${s.direction}`, s.direction)}</td>
-              <td>{s.from_facility_id === id ? `→ ${s.to_name ?? "—"}` : `← ${s.from_name ?? "—"}`}</td>
+              <td>{s.from_facility_id === id ? `→ ${s.to_name ? displayName(s.to_name) : "—"}` : `← ${s.from_name ? displayName(s.from_name) : "—"}`}</td>
               <td className="n">{fmt((s.dist_standard_m ?? 0) / 1000, 1, " km")}</td>
               <td className="n">{fmt(s.grade_up_max_w100, 1, "%")}</td>
             </tr>
@@ -98,6 +99,16 @@ function RampInfo({ id, onBack }: { id: string; onBack: (fid: string) => void })
   );
 }
 
+/** 名称の表示条件：IC・SA/PA 名と JCT 名で表示を始めるズームが違うので、分けて示す。 */
+function labelZoomHint(zoom: number | null, mc: any): { short: string; long: string } | null {
+  if (zoom == null || !mc) return null;
+  const ic = mc.label_min_zoom, jct = mc.jct_label_min_zoom;
+  if (zoom >= Math.max(ic, jct)) return null;
+  const long = `JCT 名はズーム ${jct} 以上、IC・SA/PA 名はズーム ${ic} 以上で表示します（いまは ${zoom}）。重なる名称は省きます`;
+  if (zoom < Math.min(ic, jct)) return { short: `ズーム${Math.min(ic, jct)}以上`, long };
+  return { short: ic > jct ? `IC・SA/PA名はズーム${ic}以上` : `JCT名はズーム${jct}以上`, long };
+}
+
 export default function MriView() {
   const L = useLayers();
   const targets = useTargets();
@@ -114,6 +125,7 @@ export default function MriView() {
   const legend = legendFor(L.metric, undefined, shapes);
   // 現在のズーム（最小ズームのあるレイヤーの表示条件を示すため）
   const [zoom, setZoom] = useState<number | null>(null);
+  const [layersOpen, setLayersOpen] = useState(() => window.innerWidth > 640);
   const onMap = useCallback((m: MlMap) => {
     mapRef.current = m;
     const upd = () => setZoom(Math.round(m.getZoom() * 10) / 10);
@@ -127,8 +139,38 @@ export default function MriView() {
     general: tl.general?.min_zoom,
     bridges: tl.structures?.min_zoom,
     tunnels: tl.structures?.min_zoom,
-    labels: meta.data?.map ? Math.min(meta.data.map.label_min_zoom, meta.data.map.jct_label_min_zoom) : undefined,
   };
+  // 表示範囲にデータがあるか（地図の描画が終わるたびに、チェックの入ったレイヤーの描画済みの要素を数える）
+  const [empty, setEmpty] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m) return;
+    const count = () => {
+      const has = (layers: string[], pred?: (p: any) => boolean) => {
+        const ls = layers.filter((id) => m.getLayer(id));
+        if (!ls.length) return true;
+        const fs = m.queryRenderedFeatures({ layers: ls });
+        return pred ? fs.some((f) => pred(f.properties)) : fs.length > 0;
+      };
+      const ft = (types: string[]) => (p: any) => types.includes(p?.facility_type);
+      setEmpty({
+        mainline: !has(["mainline-lo-2", "mainline-hi-2"]),
+        ramps: !has(["ramps-all-2"]),
+        general: !has(["general"]),
+        bridges: !has(["bridges"]),
+        tunnels: !has(["tunnels"]),
+        tolls: !has(["tolls"]),
+        ic: !has(["facilities-2"], ft(["IC", "SIC"])),
+        jct: !has(["facilities-2"], ft(["JCT"])),
+        sapa: !has(["facilities-2"], ft(["SA", "PA"])),
+        warnings: !has(["fac-warn"]),
+      });
+    };
+    m.on("idle", count);
+    return () => {
+      m.off("idle", count);
+    };
+  }, [zoom]);
   const exportPng = () => {
     const c = mapRef.current?.getCanvas();
     if (!c) return;
@@ -142,23 +184,31 @@ export default function MriView() {
       <RoadMriMap height="100%" onClick={onClick} onCursor={setCursor} targetRampIds={targets.rampIds}
         selectedFacilityId={kind === "facility" ? sel : null} selectedRampId={kind === "ramp" ? sel : null}
         onMap={onMap} testId="mri-map" country={country} />
-      <div className="float" style={{ left: 10, top: 10, width: 190 }} data-testid="layer-panel">
-        <div className="note">レイヤー</div>
-        {LAYER_KEYS.map((k) => {
-          // 表示に最小ズームがあるレイヤーは、それより広域では薄く表示して条件を示す（チェックしても何も出ないため）
+      <div className="float mri-layers" style={{ left: 10, top: 10, width: 190 }} data-testid="layer-panel">
+        {/* 狭い画面では地図を広く使えるよう、最初は畳んでおく */}
+        <button className="ghost note" style={{ padding: 0, border: "none", width: "100%", textAlign: "left" }} aria-expanded={layersOpen}
+          onClick={() => setLayersOpen(!layersOpen)} data-testid="layers-toggle">レイヤー {layersOpen ? "▾" : "▸"}</button>
+        {layersOpen && LAYER_KEYS.map((k) => {
+          // 表示されない理由を示す：縮尺の条件（ズーム N 以上）か、表示範囲にデータがないか
           const minZ = minZoom[k];
           const hidden = minZ != null && zoom != null && zoom < minZ;
           const noTarget = k === "target" && targets.rampIds.length === 0;
+          const labelHint = k === "labels" ? labelZoomHint(zoom, meta.data?.map) : null;
+          const none = !hidden && !noTarget && L.visible[k] && empty[k] === true;
+          const hint = hidden ? `ズーム${minZ}以上` : labelHint ? labelHint.short : none ? "この範囲になし" : null;
           return (
-            <label key={k} className="row" style={{ gap: 4, fontSize: 12, opacity: hidden || noTarget ? 0.5 : 1 }}
-              title={noTarget ? "条件検索の結果で「地図で強調」したランプを表示します" : hidden ? `ズーム ${minZ} 以上で表示します` : undefined}
+            <label key={k} className="row" style={{ gap: 4, fontSize: 12, opacity: hidden || noTarget || none ? 0.55 : 1, flexWrap: "wrap" }}
+              title={noTarget ? "条件検索の結果で「地図で強調」したランプを表示します"
+                : hidden ? `ズーム ${minZ} 以上で表示します（いまは ${zoom}）` : labelHint ? labelHint.long
+                : none ? "表示範囲にこの種類のデータがありません（縮尺の条件は満たしています）" : undefined}
               data-testid={`layer-${k}`}>
               <input type="checkbox" checked={L.visible[k]} onChange={() => L.toggle(k)} />{t(`layer.${k}`)}
               {k === "target" && <span className="mut">（{targets.rampIds.length}）</span>}
-              {hidden && <span className="mut" style={{ fontSize: 10 }}>ズーム{minZ}以上</span>}
+              {hint && <span className="mut" style={{ fontSize: 10 }} data-testid={`layer-hint-${k}`}>{hint}</span>}
             </label>
           );
         })}
+        {layersOpen && <>
         <div className="note" style={{ marginTop: 6 }}>色分け指標</div>
         <select value={L.metric} onChange={(e) => L.setMetric(e.target.value)} data-testid="metric-select" style={{ width: "100%" }}>
           {METRICS.map((m) => <option key={m} value={m} disabled={m === "drive"}>{t(`metric.${m}`)}</option>)}
@@ -166,8 +216,9 @@ export default function MriView() {
         <label className="row" style={{ gap: 4, fontSize: 12, marginTop: 4 }}>
           <input type="checkbox" checked={L.widthByCurvature} onChange={() => L.set({ widthByCurvature: !L.widthByCurvature })} />曲率で線幅変更
         </label>
+        </>}
       </div>
-      <div className="float row" style={{ left: "50%", top: 10, transform: "translateX(-50%)" }}>
+      <div className="float row mri-tools" style={{ left: "50%", top: 10, transform: "translateX(-50%)" }}>
         <button onClick={() => mapRef.current?.zoomIn()} aria-label="拡大">＋</button>
         <button onClick={() => mapRef.current?.zoomOut()} aria-label="縮小">－</button>
         <button onClick={() => setSp(country ? { country } : {})}>全体</button>
@@ -181,16 +232,18 @@ export default function MriView() {
         </button>
         <button onClick={exportPng} data-testid="export-view">画像出力</button>
       </div>
-      {sel && kind && (
-        <div className="float" style={{ right: 10, top: 10, width: 320, maxHeight: "calc(100% - 80px)", overflow: "auto" }}>
-          <button className="ghost" style={{ float: "right" }} onClick={() => setSp({})} aria-label="閉じる">×</button>
-          {kind === "facility" ? <FacilityInfo id={sel} onRamp={(rid) => select("ramp", rid)} /> : <RampInfo id={sel} onBack={(fid) => select("facility", fid)} />}
+      <div className="mri-right">
+        {sel && kind && (
+          <div className="float info" data-testid="info-float">
+            <button className="ghost" style={{ float: "right" }} onClick={() => setSp({})} aria-label="閉じる">×</button>
+            {kind === "facility" ? <FacilityInfo id={sel} onRamp={(rid) => select("ramp", rid)} /> : <RampInfo id={sel} onBack={(fid) => select("facility", fid)} />}
+          </div>
+        )}
+        <div className="float legend" data-testid="legend">
+          <div className="note">{t(`metric.${L.metric}`)}</div>
+          {legend.map((x) => <div key={x.label} style={{ fontSize: 11 }}><i style={{ background: x.color }} />{x.label}</div>)}
+          <div className="note" style={{ marginTop: 4 }}>{meta.data?.attribution}</div>
         </div>
-      )}
-      <div className="float legend" style={{ right: 10, bottom: 24 }} data-testid="legend">
-        <div className="note">{t(`metric.${L.metric}`)}</div>
-        {legend.map((x) => <div key={x.label} style={{ fontSize: 11 }}><i style={{ background: x.color }} />{x.label}</div>)}
-        <div className="note" style={{ marginTop: 4 }}>{meta.data?.attribution}</div>
       </div>
       <div className="float mono" style={{ left: 120, bottom: 8, fontSize: 11, padding: "2px 8px" }} data-testid="cursor-coords">
         {cursor ? `${cursor[1].toFixed(5)}, ${cursor[0].toFixed(5)}` : "—"}

@@ -4,7 +4,12 @@ import type { Feature, FeatureCollection } from "geojson";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
+import { displayName } from "../common/names";
+import { fmt } from "../common/ui";
+import { t } from "../../i18n";
 import { useCursor, useLayers } from "../../state/stores";
+import { HoverTip, pickTarget, targetKey, type PickOpts, type TipTiming } from "./hoverTip";
+import { placeLabels, shortLabel } from "./labelLayout";
 import { useSettings } from "../../state/units";
 import {
   GEOJSON_LAYERS, GLOW_LEVELS, TILE_LAYERS, WARNING_FILTER, facilityLayers, lineLayerIds, lineLayers, linePaint, loadLayer, warningLayer,
@@ -58,12 +63,52 @@ function boundsOf(fc: FeatureCollection): [number, number, number, number] | nul
 }
 
 /** /api/meta の map（config/settings.yaml）。 */
+/** 一般道の色（凡例と共通）。 */
+export const GENERAL_COLOR = "rgba(150,166,184,0.62)";
+
+/** 施設名の高さ（px）と、幅を測るためのキャンバス（地図の名称と同じ書体・大きさ）。 */
+const LABEL_H = 14;
+let _measure: CanvasRenderingContext2D | null = null;
+function measureCtx(): CanvasRenderingContext2D {
+  if (!_measure) {
+    _measure = document.createElement("canvas").getContext("2d")!;
+    _measure.font = `11px ${getComputedStyle(document.body).fontFamily || "sans-serif"}`;
+  }
+  return _measure;
+}
+
+/** ツールチップの設定（config/settings.yaml の map.tooltip）。 */
+type TipCfg = TipTiming & PickOpts & { offset_px: number };
+
+/** ツールチップの中身（文字列として入れる。OSM の名称などを HTML として解釈しない）。 */
+function tipContent(f: maplibregl.MapGeoJSONFeature): HTMLElement {
+  const pr = f.properties as any;
+  const d = document.createElement("div");
+  d.dataset.testid = "map-tooltip";
+  const title = document.createElement("b");
+  const sub = document.createElement("div");
+  if (f.source === "facilities") {
+    title.textContent = displayName(pr.name);
+    sub.textContent = [pr.facility_type, pr.shape_class].filter((x) => x && x !== "null").join("・");
+  } else {
+    title.textContent = String(pr.ramp_id ?? "");
+    title.className = "mono";
+    sub.textContent = [t(`flow.${pr.flow}`, pr.flow), pr.length_m != null ? fmt(Number(pr.length_m), 0, " m") : null].filter(Boolean).join("・");
+  }
+  d.append(title, sub);
+  return d;
+}
+
 export interface MapSettings {
   label_min_zoom: number;
   jct_label_min_zoom: number;
   label_max_count: number;
   label_update_delay_ms: number;
+  label_max_chars: number;
+  label_gap_px: number;
+  label_mark_px: number;
   glow_min_zoom: number;
+  tooltip: TipCfg;
   tiles: { max_zoom: number; layers: Record<string, { min_zoom: number }> };
 }
 
@@ -188,8 +233,9 @@ export default function RoadMriMap(p: Props) {
       layout: { ...(l.layout ?? {}), visibility: "none" },
     });
     for (const im of imagery) add({ id: `img-${im.id}`, type: "raster", source: `img-${im.id}`, paint: { "raster-opacity": 0.9 } });
-    add({ id: "general", type: "line", source: "general", paint: { "line-color": "rgba(110,125,140,0.30)",
-      "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.9, 15, 1.3] } });
+    // 一般道：黒い背景でも見分けられる明るさ。本線（白）・ランプ（水色）より暗く細くして区別する
+    add({ id: "general", type: "line", source: "general", paint: { "line-color": GENERAL_COLOR,
+      "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 13, 1.3, 16, 2.2] } });
     add({ id: "bridges", type: "line", source: "structures", filter: ["in", ["get", "kind"], ["literal", ["bridge", "viaduct"]]],
       paint: { "line-color": "rgba(169,139,255,0.55)", "line-width": 5 } });
     for (const l of lineLayers("mainline", opts, cfg.glow_min_zoom)) add(l);
@@ -335,12 +381,25 @@ export default function RoadMriMap(p: Props) {
           && z >= (pr.facility_type === "JCT" ? c.jct_label_min_zoom : c.label_min_zoom))
         .sort((x, y) => Math.hypot(x.ll[0] - center.lng, x.ll[1] - center.lat) - Math.hypot(y.ll[0] - center.lng, y.ll[1] - center.lat))
         .slice(0, c.label_max_count);
-      for (const { pr, ll } of cand) {
+      // 重なりを避けて配置（JCT を優先、次に表示範囲の中心に近い順）。置けない名称は出さない
+      cand.sort((x, y) => Number(y.pr.facility_type === "JCT") - Number(x.pr.facility_type === "JCT"));
+      const ctx2d = measureCtx();
+      const items = cand.map(({ pr, ll }, i) => {
+        const text = shortLabel(displayName(pr.name), c.label_max_chars);
+        const p2 = m.project(ll);
+        return { key: String(i), x: p2.x, y: p2.y, w: Math.ceil(ctx2d.measureText(text).width) + 4, h: LABEL_H, text, pr, ll };
+      });
+      const canvas = m.getCanvas();
+      const placed = placeLabels(items, { w: canvas.clientWidth, h: canvas.clientHeight }, c.label_gap_px, c.label_mark_px);
+      for (const pl of placed) {
+        const it = items[Number(pl.key)];
         const d = document.createElement("div");
         d.className = "maplabel";
-        d.textContent = pr.name ?? "";
-        d.style.cssText = `color:${pr.facility_type === "JCT" ? "#c9b8ff" : "#aebccb"};font-size:11px;text-shadow:0 0 3px #000,0 0 3px #000;transform:translateY(-14px);pointer-events:none;white-space:nowrap`;
-        markers.current.push(new maplibregl.Marker({ element: d, anchor: "bottom" }).setLngLat(ll).addTo(m));
+        d.textContent = it.text;
+        d.title = displayName(it.pr.name);
+        d.style.cssText = `color:${it.pr.facility_type === "JCT" ? "#c9b8ff" : "#aebccb"};font-size:11px;line-height:${LABEL_H}px;`
+          + "text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:none;white-space:nowrap";
+        markers.current.push(new maplibregl.Marker({ element: d, anchor: "top-left", offset: [pl.dx, pl.dy] }).setLngLat(it.ll).addTo(m));
       }
     };
     const later = () => {
@@ -369,43 +428,61 @@ export default function RoadMriMap(p: Props) {
     else if (p.center) m.jumpTo({ center: p.center, zoom: p.zoom ?? 14 });
   }, [ready, p.focus, p.center, p.zoom, p.country, summary.data, data.facilities]);
 
-  // クリック・ホバー・カーソル
+  // クリック・ホバー・カーソル。コールバックは参照で持ち、イベントは地図ごとに 1 回だけ付ける
+  // （以前は props 全体に依存して再描画のたびに付け直し、そのたびにツールチップを消していた）
+  const cb = useRef({ onClick: p.onClick, onCursor: p.onCursor });
+  cb.current = { onClick: p.onClick, onCursor: p.onCursor };
+  const tipCfg: TipCfg | undefined = cfg?.tooltip;
+  const tipRef = useRef<HoverTip<maplibregl.LngLat> | null>(null);
   useEffect(() => {
     const m = mapRef.current;
-    if (!m || !ready) return;
-    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "mri-pop" });
-    const pick = (pt: maplibregl.Point) => {
-      const layers = ["facilities-2", "ramps-all-2", "ramps-all-0"].filter((id) => m.getLayer(id));
-      const fs = m.queryRenderedFeatures([[pt.x - 6, pt.y - 6], [pt.x + 6, pt.y + 6]], { layers });
-      const fac = fs.find((f) => f.source === "facilities");
-      return fac ?? fs.find((f) => f.source === "ramps");
-    };
+    if (!m || !ready || !tipCfg) return;
+    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "mri-pop", offset: tipCfg.offset_px, maxWidth: "280px" });
+    let current: maplibregl.MapGeoJSONFeature | null = null;
+    let suppress: string | null = null; // クリックした対象：一度離れるまでツールチップを出さない
+    const tip = new HoverTip<maplibregl.LngLat>(
+      tipCfg,
+      (_key, at) => { if (current) popup.setLngLat(at).setDOMContent(tipContent(current)).addTo(m); },
+      () => popup.remove(),
+    );
+    tipRef.current = tip;
     const move = (e: maplibregl.MapMouseEvent) => {
-      p.onCursor?.([e.lngLat.lng, e.lngLat.lat]);
-      const f = pick(e.point);
+      cb.current.onCursor?.([e.lngLat.lng, e.lngLat.lat]);
+      const f = pickTarget(m, e.point.x, e.point.y, tipCfg);
+      const key = targetKey(f);
       m.getCanvas().style.cursor = f ? "pointer" : "";
-      if (!f) return popup.remove();
-      const pr = f.properties as any;
-      const html = f.source === "facilities"
-        ? `<b>${pr.name ?? "名称不明"}</b><br>${pr.facility_type}・${pr.shape_class}`
-        : `<b>${pr.ramp_id}</b><br>${pr.flow}・${Math.round(Number(pr.length_m ?? 0))} m`;
-      popup.setLngLat(e.lngLat).setHTML(html).addTo(m);
+      if (key !== suppress) suppress = null;
+      if (key !== null && key === suppress) return;
+      if (key !== tip.shown) current = f;
+      tip.move(key, e.lngLat);
     };
     const click = (e: maplibregl.MapMouseEvent) => {
-      const f = pick(e.point);
-      if (!f || !p.onClick) return;
+      const f = pickTarget(m, e.point.x, e.point.y, tipCfg);
+      tip.cancel(); // 情報パネルを開くときはツールチップを閉じる
+      suppress = targetKey(f);
+      if (!f || !cb.current.onClick) return;
       const pr = f.properties as any;
-      p.onClick(f.source === "facilities" ? { kind: "facility", id: pr.facility_id, props: pr } : { kind: "ramp", id: pr.ramp_id, props: pr });
+      cb.current.onClick(f.source === "facilities" ? { kind: "facility", id: pr.facility_id, props: pr } : { kind: "ramp", id: pr.ramp_id, props: pr });
     };
+    const leave = () => {
+      suppress = null; // 地図の外（情報パネルなど）へ出たら、クリックした対象の抑止も解く
+      tip.move(null, m.getCenter());
+    };
+    const stop = () => tip.cancel(); // 地図の移動・ズーム中は出さない
     m.on("mousemove", move);
     m.on("click", click);
-    m.on("mouseout", () => popup.remove());
+    m.on("mouseout", leave);
+    m.on("movestart", stop);
     return () => {
       m.off("mousemove", move);
       m.off("click", click);
+      m.off("mouseout", leave);
+      m.off("movestart", stop);
+      tip.cancel();
       popup.remove();
+      tipRef.current = null;
     };
-  }, [ready, p]);
+  }, [ready, tipCfg]);
 
   useEffect(() => {
     const m = mapRef.current;

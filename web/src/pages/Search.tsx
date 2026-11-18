@@ -11,6 +11,7 @@ import SimilarRamps from "../components/similar/SimilarRamps";
 import DataTable, { downloadCsv, type Col } from "../components/tables/DataTable";
 import { t } from "../i18n";
 import { useCompareTray, useRanges, useSimilar, useTargets, useToast } from "../state/stores";
+import { displayName } from "../components/common/names";
 
 type Mode = "ramp" | "facility" | "section";
 interface Form {
@@ -77,7 +78,7 @@ function SimilarPanel() {
   if (!base) return null;
   return (
     <div className="card" data-testid="similar-panel">
-      <h3 className="row">類似地点：基準 {base.kind === "facility" ? `IC/JCT「${name.data?.name ?? base.id}」` : `ランプ ${base.id}`}
+      <h3 className="row">類似地点：基準 {base.kind === "facility" ? `IC/JCT「${name.data?.name ? displayName(name.data.name) : base.id}」` : `ランプ ${base.id}`}
         <button className="ghost" style={{ marginLeft: "auto" }} onClick={() => setBase(null)}>×</button></h3>
       <div data-testid="similar-base" className="note">{base.id}</div>
       {base.kind === "facility" ? <SimilarFacilities facilityId={base.id} baseName={name.data?.name} /> : <SimilarRamps rampId={base.id} />}
@@ -148,7 +149,7 @@ export default function Search() {
   const addCmp = (fid: string, name: string | null) => tray.add({ facility_id: fid, name });
   const rampCols: Col<any>[] = [
     { key: "ramp_id", label: "ID", render: (r) => <a onClick={(e) => { e.stopPropagation(); nav(`/ramp/${r.ramp_id}`); }} className="mono" style={{ cursor: "pointer" }}>{r.ramp_id.slice(-12)}</a> },
-    { key: "facility_name", label: "施設" }, { key: "flow", label: "区分", get: (r) => t(`flow.${r.flow}`, r.flow) },
+    { key: "facility_name", label: "施設", get: (r) => displayName(r.facility_name) }, { key: "flow", label: "区分", get: (r) => t(`flow.${r.flow}`, r.flow) },
     { key: "shape_class", label: "形状" }, { key: "length_m", label: "長さ", num: true, unit: "m" }, { key: "min_radius_m", label: "最小R", num: true, unit: "m" },
     { key: "grade_up_max_w100", label: "100m上り", num: true }, { key: "grade_down_max_w100", label: "100m下り", num: true },
     { key: "elev_diff_m", label: "標高差", num: true, unit: "m" }, { key: "z_max", label: "最高標高", num: true, unit: "m" },
@@ -159,7 +160,7 @@ export default function Search() {
       <button onClick={(e) => { e.stopPropagation(); addCmp(r.facility_id, r.facility_name); }} data-testid="add-compare">＋比較</button></span> },
   ];
   const facCols: Col<any>[] = [
-    { key: "name", label: "施設", render: (r) => <span>{r.name ?? r.facility_id}{tray.a?.facility_id === r.facility_id && <span className="trayslot a"> A</span>}{tray.b?.facility_id === r.facility_id && <span className="trayslot b"> B</span>}</span> },
+    { key: "name", label: "施設", render: (r) => <span>{r.name ? displayName(r.name) : r.facility_id}{tray.a?.facility_id === r.facility_id && <span className="trayslot a"> A</span>}{tray.b?.facility_id === r.facility_id && <span className="trayslot b"> B</span>}</span> },
     { key: "facility_type", label: "種別", render: (r) => <TypeBadge type={r.facility_type} /> }, { key: "shape_class", label: "形状" },
     { key: "shape_confidence", label: "信頼度", num: true, render: (r) => <ConfBar v={r.shape_confidence} /> },
     { key: "ramp_count", label: "ランプ数", num: true }, { key: "loop_ramp_count", label: "ループ", num: true },

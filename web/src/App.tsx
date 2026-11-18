@@ -5,6 +5,7 @@ import { api } from "./api/client";
 import { useSettings } from "./state/units";
 import { Skeleton, Toasts } from "./components/common/ui";
 import { t } from "./i18n";
+import { displayName } from "./components/common/names";
 import {
   AccelList, CompareExport, FacilityDetail, FacilityList, MriView, NAV, RampDetail, RangeStats, Region, Search, Sections,
 } from "./routes";
@@ -45,7 +46,7 @@ function GlobalSearch() {
         <ul role="listbox">
           {items.map((f, i) => (
             <li key={f.facility_id} className={i === act ? "act" : ""} onMouseDown={() => go(f.facility_id)}>
-              {f.name ?? f.facility_id} <span className="mut">{f.facility_type}・{(f.route_refs ?? []).join("/")}</span>
+              {f.name ? displayName(f.name) : f.facility_id} <span className="mut">{f.facility_type}・{(f.route_refs ?? []).join("/")}</span>
             </li>
           ))}
         </ul>
@@ -57,7 +58,12 @@ function GlobalSearch() {
 export default function App() {
   const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<any>("/meta") });
   const loc = useLocation();
-  const { units, setUnits } = useSettings();
+  const { units, setUnits, applyDefault } = useSettings();
+  // 表示単位の初期値はデータに合わせる（米国のみのデータなら ft・mph）。利用者が選んだ単位は上書きしない
+  const defaultUnits = meta.data?.default_units;
+  useEffect(() => {
+    if (defaultUnits === "imperial" || defaultUnits === "metric") applyDefault(defaultUnits);
+  }, [defaultUnits, applyDefault]);
   useEffect(() => {
     const m = loc.pathname.match(/^\/(facility|ramp)\/(.+)$/);
     if (m) {
