@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from roadmri.analysis.similarity import similar_ramps
 from roadmri.api.deps import AppState, state
 from roadmri.api.util import geom_geojson, record, records
+from roadmri.network.accel_display import display
 from roadmri.network.accel_lane import REASONS
 from roadmri.store.manual_edits import history
 
@@ -25,6 +26,7 @@ def get_ramp(ramp_id: str, s: AppState = Depends(state)) -> dict[str, Any]:
     r = _ramp(s, ramp_id)
     out = record(r)
     out["geometry"] = geom_geojson(r["geom"])
+    out["accel_display"] = display(r)
     out["accel_lane_reason_text"] = (
         REASONS.get(str(r.get("accel_lane_reason"))) if r.get("accel_lane_reason") else None
     )

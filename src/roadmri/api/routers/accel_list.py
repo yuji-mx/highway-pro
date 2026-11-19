@@ -16,6 +16,7 @@ from fastapi.responses import Response
 
 from roadmri.api.deps import AppState, state
 from roadmri.api.util import records
+from roadmri.network.accel_display import STATE_SQL, display
 from roadmri.network.accel_lane import REASONS
 
 router = APIRouter(tags=["ramps"])
@@ -29,7 +30,10 @@ COLUMNS: dict[str, str] = {
     "route_ref": "json_extract_string(r.to_ref, '$.route_ref')",
     "flow": "r.flow",
     "carriageway": "r.carriageway",
-    "auto_status": "r.accel_lane_status",
+    # 以前の DB では判定保留の理由も excluded だったので、理由コードから決め直す（ADR-0020）
+    "auto_status": "CASE WHEN r.accel_lane_status = 'measured' THEN 'measured' "
+    "WHEN r.accel_lane_reason IN ('lane_addition', 'auxiliary_to_exit') THEN 'excluded' ELSE 'pending' END",
+    "display_state": STATE_SQL,
     "auto_reason": "r.accel_lane_reason",
     "auto_method": "r.accel_lane_method",
     "auto_confidence": "r.accel_lane_confidence",
@@ -39,6 +43,14 @@ COLUMNS: dict[str, str] = {
     "diff_m": "r.accel_manual_len_m - r.accel_lane_len_m",
     "abs_diff_m": "abs(r.accel_manual_len_m - r.accel_lane_len_m)",
     "review_status": "coalesce(r.accel_manual_status, 'unreviewed')",
+    "manual_reason": "r.accel_manual_reason",
+    "manual_pending": "r.accel_manual_pending",
+    "start_method": "r.accel_start_method",
+    "start_confidence": "r.accel_start_confidence",
+    "start_pending": "r.accel_start_pending",
+    "end_method": "r.accel_end_method",
+    "end_confidence": "r.accel_end_confidence",
+    "end_pending": "r.accel_end_pending",
     "manual_user": "r.accel_manual_user",
     "manual_at": "r.accel_manual_at",
     "manual_note": "r.accel_manual_note",
@@ -52,10 +64,12 @@ COLUMNS: dict[str, str] = {
     "manual_end_lat": "r.accel_manual_end_lat",
 }
 SORTABLE = {
+    "display_state",
     "ramp_id", "facility_name", "route_ref", "flow", "auto_status", "auto_method", "auto_confidence",
     "auto_len_m", "manual_len_m", "diff_m", "abs_diff_m", "review_status", "manual_at",
 }  # fmt: skip
-REVIEW = {"unreviewed", "reviewed", "confirmed", "corrected", "not_accel_lane"}
+REVIEW = {"unreviewed", "reviewed", "confirmed", "corrected", "not_accel_lane", "pending"}
+STATES = {"provisional", "pending", "excluded", "confirmed"}
 
 
 @dataclass
@@ -70,6 +84,9 @@ class AccelFilter:
     method: str | None = None
     confidence: str | None = None
     review: str | None = None
+    state: str | None = (
+        None  # 表示状態：provisional（暫定値）/ pending（判定保留）/ excluded（対象外）/ confirmed（確認済み）
+    )
     min_abs_diff_m: float | None = None
     sort: str = "facility_name"
     order: str = "asc"
@@ -80,7 +97,8 @@ class AccelFilter:
         for col, v in (
             ("f.country", self.country),
             ("r.flow", self.flow),
-            ("r.accel_lane_status", self.auto_status),
+            (f"({COLUMNS['auto_status']})", self.auto_status),
+            (f"({STATE_SQL})", self.state),
             ("r.accel_lane_reason", self.reason),
             ("r.accel_lane_method", self.method),
             ("r.accel_lane_confidence", self.confidence),
@@ -99,6 +117,8 @@ class AccelFilter:
             else:
                 w.append(f"{COLUMNS['review_status']} = ?")
                 p.append(self.review)
+        if self.state and self.state not in STATES:
+            raise HTTPException(422, f"表示状態の指定が不正です: {self.state}")
         if self.min_abs_diff_m is not None:
             w.append(f"{COLUMNS['abs_diff_m']} >= ?")
             p.append(self.min_abs_diff_m)
@@ -121,7 +141,31 @@ def _select(f: AccelFilter, extra: str = "") -> tuple[str, list[Any]]:
 def _with_text(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for r in rows:
         r["auto_reason_text"] = REASONS.get(str(r.get("auto_reason"))) if r.get("auto_reason") else None
+        d = display(_as_ramp_row(r)) or {}
+        r["display_label"] = d.get("label")
+        r["display_length_m"] = d.get("length_m")
+        r["provisional_length_m"] = d.get("provisional_length_m")
+        r["endpoints"] = d.get("endpoints")
     return rows
+
+
+def _as_ramp_row(r: dict[str, Any]) -> dict[str, Any]:
+    """一覧の行を display() が読む ramp 表の列名に戻す。"""
+    return {
+        "accel_lane_status": r.get("auto_status"),
+        "accel_lane_reason": r.get("auto_reason"),
+        "accel_lane_len_m": r.get("auto_len_m"),
+        "accel_manual_status": None if r.get("review_status") == "unreviewed" else r.get("review_status"),
+        "accel_manual_len_m": r.get("manual_len_m"),
+        "accel_manual_reason": r.get("manual_reason"),
+        "accel_manual_pending": r.get("manual_pending"),
+        **{
+            f"accel_{w}_{k}": r.get(f"{w}_{k}")
+            for w in ("start", "end")
+            for k in ("method", "confidence", "pending")
+        },
+        **{f"accel_{w}_{a}": r.get(f"auto_{w}_{a}") for w in ("start", "end") for a in ("lon", "lat")},
+    }
 
 
 @router.get("/accel_lanes")
@@ -178,7 +222,7 @@ def accel_lanes_summary(f: Annotated[AccelFilter, Depends()], s: AppState = Depe
             ((df["auto_status"] == "measured") & (df["review_status"] == "not_accel_lane")).sum()
         ),
         "auto_excluded_but_manual_measured": int(
-            ((df["auto_status"] == "excluded") & df["manual_len_m"].notna()).sum()
+            (df["auto_status"].isin(["excluded", "pending"]) & df["manual_len_m"].notna()).sum()
         ),
         # 散布図用（自動 × 手動。両方あるもの）
         "points": [
@@ -225,6 +269,16 @@ CSV_HEADERS = {
     "manual_start_lat": "手動_始点_緯度",
     "manual_end_lon": "手動_終点_経度",
     "manual_end_lat": "手動_終点_緯度",
+    # 以下は ADR-0020 で追加した列（既存の列の並びは変えない）
+    "display_state": "表示状態",
+    "start_method": "自動_始点_方法",
+    "start_confidence": "自動_始点_信頼度",
+    "start_pending": "自動_始点_保留理由",
+    "end_method": "自動_終点_方法",
+    "end_confidence": "自動_終点_信頼度",
+    "end_pending": "自動_終点_保留理由",
+    "manual_reason": "手動_対象外の理由",
+    "manual_pending": "手動_判定保留",
 }
 
 

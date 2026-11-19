@@ -13,7 +13,7 @@ from roadmri.store.duckdb_store import Store
 
 # 加速車線の確認・修正（ADR-0017）。自動の値は上書きせず、ramp の accel_manual_* 列に反映する
 ACCEL_FIELD = "accel_lane"
-ACCEL_ACTIONS = ("confirmed", "corrected", "not_accel_lane")
+ACCEL_ACTIONS = ("confirmed", "corrected", "not_accel_lane", "pending")
 ACCEL_MANUAL_COLUMNS = (
     "accel_manual_status",
     "accel_manual_len_m",
@@ -25,6 +25,8 @@ ACCEL_MANUAL_COLUMNS = (
     "accel_manual_edit_id",
     "accel_manual_user",
     "accel_manual_at",
+    "accel_manual_reason",  # 対象外の理由（lane_addition / auxiliary_to_exit / other）
+    "accel_manual_pending",  # 判定保留の端点と理由（JSON：{"end": "shadow"} など）
 )
 
 EDITABLE: dict[str, set[str]] = {
@@ -91,6 +93,8 @@ def accel_manual_values(edit: dict[str, Any] | None) -> dict[str, Any]:
         "accel_manual_edit_id": edit["edit_id"],
         "accel_manual_user": edit.get("user_name"),
         "accel_manual_at": edit.get("created_at"),
+        "accel_manual_reason": v.get("exclusion_reason"),
+        "accel_manual_pending": json.dumps(v["pending"], ensure_ascii=False) if v.get("pending") else None,
     }
 
 

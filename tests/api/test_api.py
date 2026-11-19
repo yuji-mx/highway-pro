@@ -490,7 +490,7 @@ def test_accel_lane_review_errors(client):
     assert client.get(f"/api/ramps/{other}/accel_lane").status_code == 422
     assert client.get("/api/ramps/NOPE/accel_lane").status_code == 404
     # 自動で測定できていないものは「確認」できない
-    ex = _accel_ramp(client, "excluded")
+    ex = _accel_ramp(client, "pending")
     assert client.post(f"/api/ramps/{ex}/accel_lane", json={"action": "confirmed"}).status_code == 422
 
 
@@ -527,7 +527,7 @@ def test_accel_lane_list_summary_and_csv(client):
             "ramp_id"
         ]
     )
-    excluded = _accel_ramp(client, "excluded")
+    excluded = _accel_ramp(client, "pending")  # 自動では測れなかった（判定保留）
     edits = []
     # 1 本目：自動値どおり、2 本目：下流の本線まで延ばして修正、3 本目：加速車線ではない、除外の 1 本：手動で測定
     edits.append(client.post(f"/api/ramps/{rids[0]}/accel_lane", json={"action": "confirmed"}).json())
@@ -572,7 +572,7 @@ def test_accel_lane_list_summary_and_csv(client):
         assert srt[0]["ramp_id"] == rids[1]
         assert client.get("/api/accel_lanes?sort=bogus").status_code == 422
         assert client.get("/api/accel_lanes?review=bogus").status_code == 422
-        ex = client.get("/api/accel_lanes?auto_status=excluded").json()["items"]
+        ex = client.get("/api/accel_lanes?auto_status=pending").json()["items"]
         assert ex and all(x["auto_reason_text"] for x in ex)
         # 要約：差（手動−自動）の偏りとばらつき。確認（差 0）と修正（差 > 0）の 2 件
         sm = client.get("/api/accel_lanes/summary").json()

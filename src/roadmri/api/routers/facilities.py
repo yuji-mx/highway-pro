@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from roadmri.analysis.similarity import similar_facilities
 from roadmri.api.deps import AppState, state
 from roadmri.api.util import geom_geojson, record, records
+from roadmri.network.accel_display import display
 from roadmri.store.manual_edits import history
 
 router = APIRouter(tags=["facilities"])
@@ -146,7 +147,7 @@ def get_facility(facility_id: str, s: AppState = Depends(state)) -> dict[str, An
     out["geometry"] = geom_geojson(r["geom"])
     out["hull_geometry"] = geom_geojson(r["hull"])
     ramps = s.store.df("SELECT * EXCLUDE (geom) FROM ramp WHERE facility_id=? ORDER BY seq", [facility_id])
-    out["ramps"] = records(ramps)
+    out["ramps"] = [{**x, "accel_display": display(x)} for x in records(ramps)]
     secs = s.store.df(
         "SELECT s.* EXCLUDE (geom), f1.name AS from_name, f2.name AS to_name FROM section s "
         "LEFT JOIN facility f1 ON s.from_facility_id=f1.facility_id LEFT JOIN facility f2 ON s.to_facility_id=f2.facility_id "

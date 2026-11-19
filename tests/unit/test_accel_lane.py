@@ -11,7 +11,7 @@ import networkx as nx
 import numpy as np
 import pytest
 
-from roadmri.network.accel_lane import REASONS, measure
+from roadmri.network.accel_lane import EXCLUDED_REASONS, REASONS, measure, status_of
 
 CFG: dict[str, Any] = {
     "max_search_m": 1500,
@@ -111,16 +111,24 @@ def test_lane_count_style_without_merge_tag_is_medium_confidence() -> None:
     ],
 )  # fmt: skip
 def test_excluded_cases(main: list[Any], links: list[Any], reason: str) -> None:
+    """定義上の対象外は車線追加と出口まで続く付加車線だけ。それ以外は端点を確定できない「判定保留」。"""
     g = _graph(main, links)
     r = measure(g, _ramp((-200, -400), (0, 0)), _merge_node(g, 0.0), 1, CFG, W)
-    assert (r.status, r.reason) == ("excluded", reason)
+    expected = "excluded" if reason in EXCLUDED_REASONS else "pending"
+    assert (r.status, r.reason) == (expected, reason)
     assert r.metrics()["accel_lane_len_m"] is None and reason in REASONS
+    m = r.metrics()
+    if expected == "pending":  # 確定できなかった端点に理由が付く
+        assert reason in {m["accel_start_pending"], m["accel_end_pending"]}
+    else:
+        assert m["accel_start_pending"] is None and m["accel_end_pending"] is None
 
 
 def test_no_mainline_upstream() -> None:
     g = _graph([(0.0, "2", {}), (2000.0, None, {})])  # 合流ノードが本線の始点
     r = measure(g, _ramp((-200, -400), (0, 0)), _merge_node(g, 0.0), 1, CFG, W)
-    assert (r.status, r.reason) == ("excluded", "no_mainline")
+    assert (r.status, r.reason) == ("pending", "no_mainline")
+    assert r.start.pending == r.end.pending == "no_mainline"
 
 
 def test_shallow_convergence_is_low_confidence() -> None:
@@ -140,3 +148,49 @@ def test_wider_mainline_and_two_lane_ramp_widen_the_adjacency() -> None:
     g2 = _graph([(-2000.0, "2", {}), (0.0, "2", {}), (2000.0, None, {})])
     r = measure(g2, ramp, _merge_node(g2, 0.0), 1, CFG, W)
     assert r.length_m is None or r.length_m < 60
+
+
+def test_lost_end_is_pending_not_lane_addition() -> None:
+    """下流の本線の車線数が分からない区間がある場合、終点を見失っただけなので車線追加にしない（判定保留）。"""
+    g = _graph([(-2000.0, "2", {}), (0.0, "3", {}), (300.0, None, {}), (2000.0, None, {})])
+    r = measure(g, _ramp((-200, -400), (0, 0)), _merge_node(g, 0.0), 1, CFG, W)
+    assert (r.status, r.reason) == ("pending", "lanes_unknown_downstream")
+    assert r.end.pending == "lanes_unknown_downstream" and r.start.pending is None
+    # 車線数が分かる区間で探索範囲の端まで車線が続くときだけ車線追加
+    g2 = _graph([(-2000.0, "2", {}), (0.0, "3", {}), (2000.0, None, {})])
+    assert measure(g2, _ramp((-200, -400), (0, 0)), _merge_node(g2, 0.0), 1, CFG, W).reason == "lane_addition"
+
+
+def test_endpoint_evidence() -> None:
+    """始点・終点ごとに算出方法と信頼度を持つ。"""
+    g = _graph([(-2000.0, "2", {}), (0.0, "2", {}), (2000.0, None, {})])
+    par = measure(g, _ramp((-150, -800), (-6, -300), (-6, -50), (0, 0)), _merge_node(g, 0.0), 1, CFG, W)
+    assert (par.start.method, par.start.confidence) == ("osm_parallel", "high")
+    assert (par.end.method, par.end.confidence) == (
+        "osm_merge_node",
+        "medium",
+    )  # 接続点はテーパーの途中のことがある
+    g2 = _graph(
+        [
+            (-2000.0, "2", {}),
+            (0.0, "3", {"turn:lanes": "||merge_to_left"}),
+            (250.0, "2", {}),
+            (2000.0, None, {}),
+        ]
+    )
+    lanes = measure(g2, _ramp((-200, -400), (0, 0)), _merge_node(g2, 0.0), 1, CFG, W)
+    assert (lanes.end.method, lanes.end.confidence) == ("osm_lane_drop", "high")
+    g3 = _graph([(-2000.0, "2", {}), (0.0, "3", {}), (250.0, "2", {}), (2000.0, None, {})])
+    assert (
+        measure(g3, _ramp((-200, -400), (0, 0)), _merge_node(g3, 0.0), 1, CFG, W).end.confidence == "medium"
+    )
+    shallow = measure(g, _ramp((-10, -600), (0, 0)), _merge_node(g, 0.0), 1, CFG, W)
+    assert shallow.start.confidence == "low"
+
+
+def test_status_of_maps_old_reasons() -> None:
+    """以前の DB では保留の理由も excluded で保存されていた。理由コードから状態を決め直せる。"""
+    assert status_of(None) == "measured"
+    assert status_of("lane_addition") == status_of("auxiliary_to_exit") == "excluded"
+    for r in ("no_mainline", "mainline_ends", "another_merge", "lanes_inconsistent", "no_parallel_section"):
+        assert status_of(r) == "pending"

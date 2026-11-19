@@ -22,6 +22,17 @@ export interface MapClick {
   props: Record<string, any>;
 }
 
+/** 地図上の目印（始点・終点など）。色だけで区別しないよう、形と文字のラベルを付ける。 */
+export interface Pin {
+  id: string;
+  lonlat: [number, number];
+  text: string; // 例：「始点（自動）」
+  shape: "circle" | "square" | "triangle" | "diamond";
+  color: string;
+}
+
+export const PIN_SYMBOL: Record<Pin["shape"], string> = { circle: "●", square: "■", triangle: "▲", diamond: "◆" };
+
 export interface Overlay {
   id: string;
   data: FeatureCollection;
@@ -39,6 +50,7 @@ interface Props {
   selectedRampId?: string | null;
   selectedFacilityId?: string | null;
   overlays?: Overlay[];
+  pins?: Pin[];
   onClick?: (c: MapClick) => void;
   onCursor?: (lonlat: [number, number]) => void;
   onMap?: (m: MlMap) => void;
@@ -354,6 +366,32 @@ export default function RoadMriMap(p: Props) {
       overlayIds.current.push(id);
     }
   }, [p.overlays, builtTick]);
+
+  // 目印（始点・終点など）：形＋文字のラベル（HTML 要素）
+  const pinMarkers = useRef<maplibregl.Marker[]>([]);
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m || !ready) return;
+    pinMarkers.current.forEach((x) => x.remove());
+    pinMarkers.current = (p.pins ?? []).map((pin) => {
+      const d = document.createElement("div");
+      d.className = "map-pin";
+      d.dataset.testid = `pin-${pin.id}`;
+      const sym = document.createElement("span");
+      sym.className = "sym";
+      sym.textContent = PIN_SYMBOL[pin.shape];
+      sym.style.color = pin.color;
+      const label = document.createElement("span");
+      label.className = "txt";
+      label.textContent = pin.text;
+      d.append(sym, label);
+      return new maplibregl.Marker({ element: d, anchor: "left", offset: [-7, 0] }).setLngLat(pin.lonlat).addTo(m);
+    });
+    return () => {
+      pinMarkers.current.forEach((x) => x.remove());
+      pinMarkers.current = [];
+    };
+  }, [ready, p.pins]);
 
   // 名称（HTML 要素。オフラインでフォントグリフを使わないため）。表示範囲内のものだけ、上限件数まで作る
   // （以前は全施設分を作っていたため、広域データでは数千個の要素を毎フレーム動かしていた）

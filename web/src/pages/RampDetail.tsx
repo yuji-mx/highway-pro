@@ -7,7 +7,8 @@ import CurvatureChart from "../components/charts/CurvatureChart";
 import ProfileChart, { type Marker } from "../components/charts/ProfileChart";
 import { DIFF_COLORS, DIFF_LABELS, ErrorBox, Kpi, QualityBadge, Skeleton, fmt } from "../components/common/ui";
 import AccelLanePanel from "../components/accel/AccelLanePanel";
-import RoadMriMap, { type Overlay } from "../components/map/RoadMriMap";
+import { accelShort } from "../components/accel/accelText";
+import RoadMriMap, { type Overlay, type Pin } from "../components/map/RoadMriMap";
 import SimilarRamps from "../components/similar/SimilarRamps";
 import { t } from "../i18n";
 import { useCompareTray, useSimilar } from "../state/stores";
@@ -21,6 +22,8 @@ export default function RampDetail() {
   // 加速車線の確認・修正（地図での始点・終点の指定と重ね描き、合流部への拡大）
   const [map, setMap] = useState<MlMap | null>(null);
   const [overlays, setOverlays] = useState<Overlay[]>([]);
+  const [pins, setPins] = useState<Pin[]>([]);
+  const onPins = useCallback((x: Pin[]) => setPins(x), []);
   const [accelFocus, setAccelFocus] = useState<[number, number, number, number] | null>(null);
   const onOverlays = useCallback((o: Overlay[]) => setOverlays(o), []);
   useEffect(() => setAccelFocus(null), [id]);
@@ -79,7 +82,7 @@ export default function RampDetail() {
       {showSim && <div className="card" style={{ marginTop: 12 }}><h3>類似ランプ</h3><SimilarRamps rampId={id} /></div>}
       <div className="grid2" style={{ marginTop: 12 }}>
         <RoadMriMap height={460} focus={accelFocus ?? focus} selectedRampId={id} selectedFacilityId={r.facility_id} testId="ramp-map"
-          overlays={r.accel_lane_status ? overlays : undefined} onMap={setMap} />
+          overlays={r.accel_lane_status ? overlays : undefined} pins={r.accel_lane_status ? pins : undefined} onMap={setMap} />
         <div className="card">
           <div className="row"><h3 style={{ margin: 0 }}>標高・勾配プロファイル</h3>
             <span className="row" style={{ marginLeft: "auto" }}>窓幅
@@ -92,7 +95,7 @@ export default function RampDetail() {
       </div>
       {r.accel_lane_status && (
         <div className="card" style={{ marginTop: 12 }}>
-          <AccelLanePanel rampId={id} map={map} onOverlays={onOverlays} onFocus={setAccelFocus} />
+          <AccelLanePanel rampId={id} map={map} onOverlays={onOverlays} onPins={onPins} onFocus={setAccelFocus} />
         </div>
       )}
       <div className="grid3" style={{ marginTop: 12 }}>
@@ -127,15 +130,7 @@ export default function RampDetail() {
   );
 }
 
-const ACCEL_METHOD: Record<string, string> = { geometry: "並走部から", lanes: "車線数の変化から", "geometry+lanes": "並走部と車線数の変化から" };
-const ACCEL_CONF: Record<string, string> = { high: "高", medium: "中", low: "低" };
-
-/** 加速車線（ADR-0016）：測定値と判定方法・信頼度、除外のときは理由。本線への合流でなければ「—」。 */
+/** 加速車線（ADR-0016・0020）：暫定値・判定保留・対象外・確認済みを区別。本線への合流でなければ「—」。 */
 function accelText(r: any): string {
-  if (r.accel_lane_status === "measured") {
-    const how = [ACCEL_METHOD[r.accel_lane_method] ?? r.accel_lane_method, `信頼度 ${ACCEL_CONF[r.accel_lane_confidence] ?? "—"}`];
-    return `${fmt(r.accel_lane_len_m, 0, " m")}（${how.join("・")}）`;
-  }
-  if (r.accel_lane_status === "excluded") return `測定対象外：${r.accel_lane_reason_text ?? r.accel_lane_reason}`;
-  return "—";
+  return r.accel_display ? accelShort(r) : "—";
 }

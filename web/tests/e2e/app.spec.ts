@@ -209,22 +209,54 @@ test("13. IC/JCT 一覧：検索語でサーバー側を絞り込み、見出し
   expect(lines.length - 1).toBe(all);
 });
 
-test("14. ランプ詳細に加速車線長（判定方法・信頼度）、測定対象外は理由を表示", async ({ page }) => {
+test("14. ランプ詳細に加速車線長：暫定値（地図データ）・対象外・判定保留を区別し、始点・終点の根拠と目印を表示", async ({ page }) => {
   const ramps: any[] = [];
   for (const q of ["宇都宮", "鹿沼", "大谷"]) {
     const f = await facility(page, q);
     ramps.push(...(await api(page, `/facilities/${f.facility_id}`)).ramps);
   }
-  const measured = ramps.find((r) => r.accel_lane_status === "measured");
-  const excluded = ramps.find((r) => r.accel_lane_status === "excluded");
+  const measured = ramps.find((r) => r.accel_display?.state === "provisional");
+  const excluded = ramps.find((r) => r.accel_display?.state === "excluded");
   const other = ramps.find((r) => r.accel_lane_status == null);
   await page.goto(`/ramp/${measured.ramp_id}`);
-  await expect(page.getByTestId("accel-lane")).toContainText(`${Math.round(measured.accel_lane_len_m)} m（`);
-  await expect(page.getByTestId("accel-lane")).toContainText("信頼度");
+  await expect(page.getByTestId("accel-lane")).toContainText(`暫定値 ${Math.round(measured.accel_lane_len_m)} m（地図データ）`);
+  await expect(page.getByTestId("accel-state")).toHaveText("暫定値（地図データ）");
+  await expect(page.getByTestId("accel-start-evidence")).toContainText("地図データ");
+  await expect(page.getByTestId("accel-end-evidence")).toContainText("信頼度");
+  // 地図の始点・終点は形と文字で区別する（色だけに頼らない）。凡例も表示
+  await expect(page.getByTestId("pin-auto-start")).toContainText("始点（自動）");
+  await expect(page.getByTestId("pin-auto-end")).toContainText("終点（自動）");
+  await expect(page.getByTestId("accel-legend")).toContainText("▲ 始点（自動）");
+  await expect(page.getByTestId("accel-legend")).toContainText("■ 終点（自動）");
   await page.goto(`/ramp/${excluded.ramp_id}`);
-  await expect(page.getByTestId("accel-lane")).toContainText("測定対象外：");
+  await expect(page.getByTestId("accel-lane")).toHaveText(excluded.accel_display.label);
+  await expect(page.getByTestId("accel-state")).toContainText("対象外・");
   await page.goto(`/ramp/${other.ramp_id}`);
   await expect(page.getByTestId("accel-lane")).toHaveText("—");
+});
+
+test("14b. 手動の判定保留：確認できなかった端点と理由を保存し、地図データによる暫定値を併記。取り消しで暫定値に戻る", async ({ page }) => {
+  const f = await facility(page, "宇都宮");
+  const ramp = (await api(page, `/facilities/${f.facility_id}`)).ramps.find((r: any) => r.accel_display?.state === "provisional");
+  await page.goto(`/ramp/${ramp.ramp_id}`);
+  await page.getByTestId("accel-pending").click();
+  await page.getByTestId("accel-pending-end").selectOption("shadow");
+  await page.getByTestId("accel-pending-save").click();
+  await expect(page.getByTestId("accel-state")).toHaveText("判定保留（終点：影で目印が見えない）");
+  await expect(page.getByTestId("accel-panel")).toContainText(`地図データによる暫定値 ${Math.round(ramp.accel_lane_len_m)} m`);
+  await expect(page.getByTestId("accel-end-evidence")).toContainText("判定保留：影で目印が見えない");
+  const after = await api(page, `/ramps/${ramp.ramp_id}/accel_lane`);
+  expect(after.auto.length_m).toBe(ramp.accel_lane_len_m); // 自動の値は変わらない
+  await page.getByTestId("accel-revert").click();
+  await expect(page.getByTestId("accel-state")).toHaveText("暫定値（地図データ）");
+  // 道路MRIビュー・加速車線一覧でも状態を区別する
+  await page.goto(`/mri?kind=ramp&sel=${ramp.ramp_id}`);
+  await expect(page.getByTestId("mri-accel")).toContainText("暫定値（地図データ）");
+  await page.goto("/accel");
+  await page.getByTestId("accel-filter-state").selectOption("excluded");
+  await expect(page.getByTestId("accel-row-state").first()).toContainText("対象外・");
+  await page.getByTestId("accel-filter-state").selectOption("provisional");
+  await expect(page.getByTestId("accel-row-state").first()).toHaveText("暫定値（地図データ）");
 });
 
 test("15. 加速車線を地図で修正：手動の値は自動の値と別に保存され、差を表示。取り消しで元に戻る", async ({ page }) => {

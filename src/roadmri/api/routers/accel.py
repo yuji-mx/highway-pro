@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from roadmri.api.deps import AppState, state
 from roadmri.api.schemas.models import AccelPoints, AccelReview
 from roadmri.api.util import py, record
-from roadmri.network.accel_lane import REASONS, Span, lane_path, measure_between
+from roadmri.network.accel_display import display, endpoint
+from roadmri.network.accel_lane import REASONS, Span, lane_path, measure_between, status_of
 from roadmri.store.manual_edits import ACCEL_FIELD, accel_manual_values, add_edit, history
 
 router = APIRouter(tags=["ramps"])
@@ -76,6 +77,10 @@ def get_accel_lane(ramp_id: str, s: AppState = Depends(state)) -> dict[str, Any]
         "status": r["accel_lane_status"],
         "reason": r["accel_lane_reason"],
         "reason_text": REASONS.get(str(r["accel_lane_reason"])) if r["accel_lane_reason"] else None,
+        "status_normalized": status_of(r["accel_lane_reason"])
+        if r["accel_lane_status"] != "measured"
+        else "measured",
+        "endpoints": {w: endpoint(r, w) for w in ("start", "end")},
         "method": r["accel_lane_method"],
         "confidence": r["accel_lane_confidence"],
         "notes": r["accel_lane_notes"],
@@ -102,7 +107,13 @@ def get_accel_lane(ramp_id: str, s: AppState = Depends(state)) -> dict[str, Any]
         if manual and manual["length_m"] is not None and auto["length_m"] is not None
         else None
     )
-    out: dict[str, Any] = {"ramp_id": ramp_id, "auto": auto, "manual": manual, "difference_m": diff}
+    out: dict[str, Any] = {"ramp_id": ramp_id, "auto": auto, "manual": manual, "difference_m": diff,
+                           "display": display(r)}  # fmt: skip
+    if manual is not None:
+        manual["exclusion_reason"] = r.get("accel_manual_reason")
+        manual["pending"] = (
+            (out["display"] or {}).get("endpoints") if r.get("accel_manual_status") == "pending" else None
+        )
     pp = _path(s, r)
     out["path"] = _line(pp[0], pp[1]) if pp else None
     for key, part in (("auto_span", auto), ("manual_span", manual)):
@@ -141,7 +152,8 @@ def measure_accel_lane(ramp_id: str, body: AccelPoints, s: AppState = Depends(st
 
 @router.post("/ramps/{ramp_id}/accel_lane", status_code=201)
 def review_accel_lane(ramp_id: str, body: AccelReview, s: AppState = Depends(state)) -> dict[str, Any]:
-    """確認（自動値どおり）・修正（始点・終点を指定）・加速車線ではない、を手動の値として保存する。
+    """確認（自動値どおり）・修正（始点・終点を指定）・加速車線ではない（理由つき）・判定保留（端点と理由）を
+    手動の値として保存する。
     修正は manual_edit に追記され（履歴・取り消し可）、自動の値は変わらない。"""
     r = _row(s, ramp_id)
     value: dict[str, Any] = {"action": body.action, "auto_length_m": r["accel_lane_len_m"]}
@@ -168,6 +180,12 @@ def review_accel_lane(ramp_id: str, body: AccelReview, s: AppState = Depends(sta
             "end": _lonlat(proj, sp.end_xy),
             "clicked": {"start": list(body.start), "end": list(body.end)},
         }
+    elif body.action == "not_accel_lane":
+        value["exclusion_reason"] = body.exclusion_reason or "other"
+    elif body.action == "pending":
+        if not body.pending:
+            raise HTTPException(422, "判定保留には、確定できなかった端点（始点・終点）と理由が必要です")
+        value["pending"] = dict(body.pending)
     edit = add_edit(s.store, "ramp", ramp_id, ACCEL_FIELD, value, s.cfg.user_name, body.comment)
     apply_accel_manual(s, ramp_id, edit)
     return get_accel_lane(ramp_id, s)

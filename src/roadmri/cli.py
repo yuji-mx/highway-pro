@@ -290,5 +290,65 @@ def regions() -> None:
         typer.echo(f"{r['id']:16s} {r.get('label', '')}")
 
 
+@app.command("accel-photo")
+def accel_photo(
+    ramps: Annotated[str | None, typer.Option(help="ramp_id をカンマ区切り（コード=ramp_id も可）")] = None,
+    manifest: Annotated[Path | None, typer.Option(help="[{code, ramp_id}] の JSON")] = None,
+    out: Annotated[
+        Path | None, typer.Option(help="出力 JSON（既定は data/validation/accel_photo/<run_id>.json）")
+    ] = None,
+    offline: Annotated[bool, typer.Option(help="保存済みの航空写真だけを使う")] = False,
+) -> None:
+    """【検証用】航空写真による加速車線の端点の補正候補を出す（本番の自動値には採用しない。ADR-0020）。"""
+    from roadmri.validation.runner import photo_candidates
+
+    cfg = get_config()
+    pairs: list[tuple[str | None, str]] = []
+    if manifest:
+        pairs += [(m.get("code"), m["ramp_id"]) for m in json.loads(manifest.read_text(encoding="utf-8"))]
+    for item in (ramps or "").split(","):
+        if item.strip():
+            code, _, rid = item.strip().rpartition("=")
+            pairs.append((code or None, rid))
+    if not pairs:
+        raise typer.BadParameter("--ramps か --manifest を指定してください")
+    doc = photo_candidates(cfg, _store(cfg), pairs, offline)
+    path = out or cfg.path("data_dir") / "validation" / "accel_photo" / f"{doc['run_id']}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+    held = sum(1 for r in doc["predictions"] if r["held"])
+    typer.echo(f"出力: {path}（{len(pairs)} 件、保留 {held} 件。本番の値は変更していません）")
+
+
+@app.command("accel-eval")
+def accel_eval(
+    sites: Annotated[Path | None, typer.Option(help="地点の一覧 JSON（判読範囲・現行・候補）")] = None,
+    study: Annotated[
+        Path | None, typer.Option(help="data/validation/accel_regional など（references・predictions）")
+    ] = None,
+    method: Annotated[str, typer.Option(help="study の手法（regional・learned・width など）")] = "regional",
+    photo: Annotated[
+        Path | None, typer.Option(help="accel-photo の出力（同じフォルダの references.json と比べる）")
+    ] = None,
+    check_db: Annotated[
+        bool, typer.Option(help="非合流の地点で、現在の DB の判定（対象外の理由・距離 null）も確かめる")
+    ] = False,
+    out: Annotated[Path | None, typer.Option(help="出力先フォルダ（JSON と Markdown）")] = None,
+) -> None:
+    """【検証用】補正候補を写真の判読と比べ、始点・終点・距離の誤差と保留を分けて採点する（ADR-0020）。"""
+    from roadmri.validation.runner import evaluate
+
+    cfg = get_config()
+    doc, md = evaluate(cfg, sites, study, method, photo, _store(cfg) if check_db else None)
+    folder = out or cfg.path("data_dir") / "validation" / "accel_eval" / doc["run_id"]
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "scores.json").write_text(
+        json.dumps(doc, ensure_ascii=False, indent=1, default=str), encoding="utf-8"
+    )
+    (folder / "REPORT.md").write_text(md, encoding="utf-8")
+    typer.echo(md)
+    typer.echo(f"出力: {folder}")
+
+
 if __name__ == "__main__":
     app()

@@ -1,0 +1,18 @@
+{
+  "source": "data/validation/accel_regional/REPORT.md（2026-11-19）の表の数値。位置は対象ランプの経路に沿う測点（m）。P01〜P06 は長さだけ（端点は prospective_predictions.json にあるが、このリポジトリには同梱されていない）",
+  "candidate_method": "車道の両側の線を追って両端点を補正（両側追跡）",
+  "sites": [
+    {"code": "R06", "country": "US", "ref_type": "merge", "start_range": [434, 450], "end_range": [648, 683], "baseline": [346, 414], "candidate": [396, 672]},
+    {"code": "R10", "country": "US", "ref_type": "merge", "start_range": [496, 516], "end_range": [783, 816], "baseline": [389, 458], "candidate": [428, 716]},
+    {"code": "R08", "country": "US", "ref_type": "to_exit"},
+    {"code": "R11", "country": "US", "ref_type": "to_exit"},
+    {"code": "R13", "country": "US", "ref_type": "continuation"},
+    {"code": "R14", "country": "US", "ref_type": "continuation"},
+    {"code": "P01", "country": "US", "ref_type": "merge", "length_range": [244, 295], "baseline_length": 45, "candidate_length": 495},
+    {"code": "P02", "country": "US", "ref_type": "merge", "length_range": [209, 269], "baseline_length": 138, "candidate_length": 205},
+    {"code": "P03", "country": "US", "ref_type": "merge", "length_range": [429, 507], "baseline_length": 43, "candidate_length": 63, "fallback": ["end"]},
+    {"code": "P04", "country": "US", "ref_type": "merge", "length_range": [212, 296], "baseline_length": 51, "candidate_length": 279},
+    {"code": "P05", "country": "US", "ref_type": "merge", "length_range": [171, 223], "baseline_length": 193, "candidate_length": 281},
+    {"code": "P06", "country": "US", "ref_type": "merge", "length_range": [248, 302], "baseline_length": 40, "candidate_length": 299}
+  ]
+}
