@@ -1,17 +1,21 @@
-/** 加速車線長の短い表示（ADR-0016〜0018）。自動の値を基本とし、確認済みなら手動の値も併記する（自動の値は置き換えない）。 */
+/** 加速車線長の短い表示（ADR-0020）。「暫定値」「判定保留」「対象外」「確認済み」を区別する。
+ * 状態と文言は API（accel_display）が決める。自動の値は置き換えない（確認済みでも自動の値は別に残る）。 */
 import { fmt } from "../common/ui";
 
 export function accelShort(r: any): string {
-  if (!r?.accel_lane_status) return "—"; // 本線への合流ではない
-  const auto = r.accel_lane_status === "measured" ? fmt(r.accel_lane_len_m, 0, " m") : "対象外";
-  switch (r.accel_manual_status) {
+  const d = r?.accel_display;
+  if (!d) return r?.accel_lane_status ? "—" : "—"; // 本線への合流ではない（または以前の API）
+  switch (d.state) {
+    case "provisional":
+      return `暫定値 ${fmt(d.length_m, 0, " m")}（地図データ）`;
     case "confirmed":
-      return `${auto}（確認済み）`;
-    case "corrected":
-      return `${auto}（手動 ${fmt(r.accel_manual_len_m, 0, " m")}）`;
-    case "not_accel_lane":
-      return `${auto}（手動：加速車線ではない）`;
+      return `${fmt(d.length_m, 0, " m")}（${d.label}）`;
+    case "pending":
+      return d.provisional_length_m != null ? `${d.label}・地図データによる暫定値 ${fmt(d.provisional_length_m, 0, " m")}` : d.label;
     default:
-      return auto;
+      return d.label;
   }
 }
+
+/** 状態のバッジ用のクラス名。 */
+export const accelStateClass = (r: any): string => `state-badge state-${r?.accel_display?.state ?? "excluded"}`;

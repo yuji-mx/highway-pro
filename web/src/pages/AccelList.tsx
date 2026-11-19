@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import EChart, { AXIS, TOOLTIP } from "../components/charts/EChart";
 import { Empty, ErrorBox, Skeleton, fmt } from "../components/common/ui";
 import DataTable, { type Col } from "../components/tables/DataTable";
+import type { EndpointInfo } from "../components/accel/AccelLanePanel";
 import { t } from "../i18n";
 import { convert, unitLabel } from "../state/units";
 import { displayName } from "../components/common/names";
@@ -15,31 +16,41 @@ interface Row {
   auto_status: string; auto_reason_text: string | null; auto_method: string | null; auto_confidence: string | null;
   auto_len_m: number | null; manual_len_m: number | null; diff_m: number | null; review_status: string;
   manual_user: string | null; manual_at: string | null; manual_note: string | null;
+  display_state: string | null; display_label: string | null; display_length_m: number | null; provisional_length_m: number | null;
+  endpoints: { start: EndpointInfo; end: EndpointInfo } | null;
 }
 interface Stats { n: number; bias_m?: number; median_m?: number; mae_m?: number; rmse_m?: number; p90_abs_m?: number;
   min_m?: number; max_m?: number; share_manual_longer?: number }
 
-const STATUS: Record<string, string> = { measured: "測定", excluded: "測定対象外" };
-const REVIEW: Record<string, string> = { unreviewed: "未確認", confirmed: "自動値どおり", corrected: "修正", not_accel_lane: "加速車線ではない" };
+const STATUS: Record<string, string> = { measured: "測定（暫定値）", pending: "判定保留", excluded: "対象外" };
+const REVIEW: Record<string, string> = { unreviewed: "未確認", confirmed: "自動値どおり", corrected: "修正", not_accel_lane: "加速車線ではない", pending: "判定保留" };
 const METHOD: Record<string, string> = { geometry: "並走部", lanes: "車線数の変化", "geometry+lanes": "並走部＋車線数" };
 const CONF: Record<string, string> = { high: "高", medium: "中", low: "低" };
 const CONF_COLOR: Record<string, string> = { high: "#47e08f", medium: "#ffb53d", low: "#ff5b4f" };
-const FILTER_KEYS = ["q", "country", "flow", "auto_status", "reason", "method", "confidence", "review", "min_abs_diff_m"];
+const FILTER_KEYS = ["q", "state", "country", "flow", "auto_status", "reason", "method", "confidence", "review", "min_abs_diff_m"];
 
 const signed = (v: number | null | undefined) => (v == null ? "—" : `${v > 0 ? "+" : ""}${fmt(v, 0, " m")}`);
 
+/** 端点の根拠の短い表示：方法・信頼度、保留なら「保留」、記録がなければ「未評価」。 */
+const epShort = (e?: EndpointInfo) => (!e ? "—" : !e.evaluated ? "未評価" : e.pending ? "保留" : `${e.method?.replace("osm_", "") ?? "—"}・${CONF[e.confidence ?? ""] ?? "—"}`);
+const STATE_FILTER: [string, string][] = [["provisional", "暫定値（地図データ）"], ["pending", "判定保留"], ["excluded", "対象外"], ["confirmed", "確認済み"]];
+
 const COLS: Col<Row>[] = [
+  { key: "display_state", label: "状態", render: (r) => (
+    <span className={`state-badge state-${r.display_state ?? "excluded"}`} title={r.display_label ?? ""} data-testid="accel-row-state">
+      {r.display_label ?? "—"}</span>) },
   { key: "facility_name", label: "施設", get: (r) => displayName(r.facility_name) },
   { key: "ramp_id", label: "ランプ", render: (r) => <span className="mono">{r.ramp_id.slice(-8)}</span> },
   { key: "route_ref", label: "路線" },
   { key: "flow", label: "種類", get: (r) => t(`flow.${r.flow}`, r.flow) },
-  { key: "auto_status", label: "自動の判定", render: (r) => r.auto_status === "excluded"
-    ? <span title={r.auto_reason_text ?? ""}>測定対象外<div className="note" style={{ maxWidth: 220, whiteSpace: "normal" }}>{r.auto_reason_text}</div></span>
+  { key: "auto_status", label: "自動の判定", render: (r) => r.auto_status !== "measured"
+    ? <span title={r.auto_reason_text ?? ""}>{STATUS[r.auto_status] ?? r.auto_status}<div className="note" style={{ maxWidth: 220, whiteSpace: "normal" }}>{r.auto_reason_text}</div></span>
     : STATUS[r.auto_status] },
   { key: "auto_method", label: "判定方法", get: (r) => (r.auto_method ? METHOD[r.auto_method] ?? r.auto_method : "—") },
   { key: "auto_confidence", label: "信頼度", render: (r) => r.auto_confidence
     ? <span style={{ color: CONF_COLOR[r.auto_confidence] }}>{CONF[r.auto_confidence]}</span> : "—" },
-  { key: "auto_len_m", label: "自動", num: true, get: (r) => fmt(r.auto_len_m, 0, " m") },
+  { key: "endpoints", label: "根拠（始点／終点）", sortable: false, get: (r) => `${epShort(r.endpoints?.start)}／${epShort(r.endpoints?.end)}` },
+  { key: "auto_len_m", label: "自動（暫定値）", num: true, get: (r) => fmt(r.auto_len_m, 0, " m") },
   { key: "manual_len_m", label: "手動", num: true, get: (r) => fmt(r.manual_len_m, 0, " m") },
   { key: "diff_m", label: "差（手動−自動）", num: true, render: (r) => (
     <span style={{ color: r.diff_m == null ? undefined : Math.abs(r.diff_m) < 10 ? "#47e08f" : r.diff_m > 0 ? "#ffb53d" : "#38e1ff" }}>
@@ -143,6 +154,7 @@ export default function AccelList() {
           data-testid="accel-search" /></label>
         {sel("country", "国", (meta.data?.countries ?? []).map((c: string) => [c, t(`country.${c}`, c)]))}
         {sel("flow", "種類", ["entry", "jct_link", "facility_link"].map((f) => [f, t(`flow.${f}`, f)]))}
+        {sel("state", "状態", STATE_FILTER, "accel-filter-state")}
         {sel("auto_status", "自動の判定", Object.entries(STATUS))}
         {sel("confidence", "信頼度", Object.entries(CONF), "accel-filter-confidence")}
         {sel("method", "判定方法", Object.entries(METHOD))}
@@ -176,7 +188,7 @@ export default function AccelList() {
             </table>
             <div className="note">
               判定の食い違い：自動では測ったが「加速車線ではない」<b className="num">{s.auto_measured_but_not_accel_lane}</b> 件、
-              自動では除外したが手動で測った <b className="num">{s.auto_excluded_but_manual_measured}</b> 件。
+              自動では対象外・判定保留としたが手動で測った <b className="num">{s.auto_excluded_but_manual_measured}</b> 件。
               偏り・誤差は、自動と手動の両方に長さがあるもの（自動値どおり・修正）で計算しています。
             </div>
           </div>

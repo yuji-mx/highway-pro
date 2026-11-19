@@ -119,9 +119,19 @@ class AccelPoints(BaseModel):
 
 
 class AccelReview(BaseModel):
-    """加速車線の確認・修正（ADR-0017）。自動の値は上書きせず、別に保存する。"""
+    """加速車線の確認・修正（ADR-0017・ADR-0020）。自動の値は上書きせず、別に保存する。"""
 
-    action: Literal["confirmed", "corrected", "not_accel_lane"]
+    action: Literal["confirmed", "corrected", "not_accel_lane", "pending"]
     start: tuple[float, float] | None = None
     end: tuple[float, float] | None = None
     comment: str | None = None
+    # not_accel_lane の理由（対象外・車線追加／対象外・出口まで続く付加車線／その他）
+    exclusion_reason: Literal["lane_addition", "auxiliary_to_exit", "other"] | None = None
+    # pending：確定できなかった端点と理由
+    pending: (
+        dict[
+            Literal["start", "end"],
+            Literal["shadow", "bridge", "out_of_image", "adjacent_ramp", "construction", "other"],
+        ]
+        | None
+    ) = None

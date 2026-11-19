@@ -136,3 +136,13 @@ tr.hl td { background: rgba(56, 225, 255, .07); }
   .mri-tools { left: auto !important; right: 10px; transform: none !important; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 140px); }
   .mri-layers { width: 120px !important; }
 }
+/* 地図上の始点・終点の目印：形＋文字（色だけで区別しない） */
+.map-pin { display: flex; align-items: center; gap: 3px; pointer-events: none; white-space: nowrap; font-size: 11px; }
+.map-pin .sym { font-size: 14px; line-height: 14px; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+.map-pin .txt { color: #fff; background: rgba(0, 0, 0, 0.7); border: 1px solid var(--line2); border-radius: 3px; padding: 0 4px; }
+.state-badge { display: inline-block; font-size: 11px; border-radius: 3px; padding: 0 5px; border: 1px solid; white-space: nowrap; }
+.state-provisional { color: #7fd3ff; border-color: #2b6f8f; }
+.state-pending { color: #ffb53d; border-color: #8a6420; }
+.state-excluded { color: #c3cbd4; border-color: #4a5663; }
+.state-confirmed { color: #47e08f; border-color: #1e5b3f; }
+

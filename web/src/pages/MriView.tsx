@@ -7,7 +7,7 @@ import ProfileChart from "../components/charts/ProfileChart";
 import { ConfBar, ErrorBox, QualityBadge, ReviewBadge, TypeBadge, fmt } from "../components/common/ui";
 import { legendFor } from "../components/map/colorScales";
 import RoadMriMap, { type MapClick } from "../components/map/RoadMriMap";
-import { accelShort } from "../components/accel/accelText";
+import { accelShort, accelStateClass } from "../components/accel/accelText";
 import { t } from "../i18n";
 import { LAYER_KEYS, useLayers, useTargets } from "../state/stores";
 import { displayName } from "../components/common/names";
@@ -86,8 +86,11 @@ function RampInfo({ id, onBack }: { id: string; onBack: (fid: string) => void })
         <div className="kpi"><div className="l">標高差</div><div className="v">{fmt(r.elev_diff_m, 1)}<small>m</small></div></div>
       </div>
       {r.accel_lane_status && (
-        <div style={{ marginTop: 4 }} data-testid="mri-accel">加速車線長：<b className="num">{accelShort(r)}</b>
-          {r.accel_lane_status === "excluded" && r.accel_lane_reason_text && <div className="note">{r.accel_lane_reason_text}</div>}</div>
+        <div style={{ marginTop: 4 }} data-testid="mri-accel">加速車線長：<span className={accelStateClass(r)}>{r.accel_display?.label ?? "—"}</span>{" "}
+          <b className="num">{["provisional", "confirmed"].includes(r.accel_display?.state) ? fmt(r.accel_display.length_m, 0, " m") : ""}</b>
+          {r.accel_display?.state === "pending" && r.accel_display.provisional_length_m != null && (
+            <span className="note">地図データによる暫定値 {fmt(r.accel_display.provisional_length_m, 0, " m")}</span>)}
+          {r.accel_lane_status !== "measured" && r.accel_lane_reason_text && <div className="note">{r.accel_lane_reason_text}</div>}</div>
       )}
       {prof.data && <ProfileChart points={prof.data.points} height={130} testId="mini-profile" />}
       {(r.flags ?? []).map((x: any) => <div key={x.flag_id} className="warn">⚠ {x.message_ja}</div>)}

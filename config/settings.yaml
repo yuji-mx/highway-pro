@@ -27,6 +27,7 @@ http:
     elevation.nationalmap.gov: {per_second: 5, max_concurrency: 2, timeout_s: 120, max_retries: 3}
     api.openstreetmap.org: {min_interval_s: 3.0, max_concurrency: 1}
     basemap.nationalmap.gov: {per_second: 5, max_concurrency: 2, timeout_s: 30, max_retries: 2}
+    server.arcgisonline.com: {per_second: 4, max_concurrency: 2, timeout_s: 30, max_retries: 2}   # 検証用の航空写真のみ
     default: {max_concurrency: 4}
 user:
   name: null               # null の場合は OS のユーザー名
@@ -97,3 +98,50 @@ areas:                     # 地域・路線選択の地域（日本・北米）
   JP: {label: 日本, countries: [JP], bounds: [122.9, 20.4, 154.0, 45.6], dem: jp, country: JP, example_bbox: "139.72,36.515,139.90,36.655"}
   NA: {label: 北米, countries: [US, CA], bounds: [-170.0, 14.0, -50.0, 72.0], dem: us, country: US, example_bbox: "-83.77,42.215,-83.645,42.245"}
 
+validation:                # 検証専用（本番の算定・表示・serve では使わない。ADR-0020）。config_hash には含めない
+  accel_photo:             # 航空写真による加速車線の端点の補正候補（roadmri accel-photo）
+    imagery: {JP: gsi_seamless, US: esri_world_imagery, default: esri_world_imagery}   # 国別の取得元
+    sources:               # 検証用だけに使う取得元（地図の背景には出さない）
+      esri_world_imagery:
+        name: Esri World Imagery（検証用）
+        url: https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}
+        max_zoom: 19
+        attribution: "Esri, Maxar, Earthstar Geographics, and the GIS User Community"
+    zoom: 18               # 最初に取得する解像度（画像端の延長では取得元の max_zoom＝元の解像度で取り直す）
+    step_m: 1.0            # 道筋に沿った標本間隔
+    lateral_px_m: 0.25     # 横方向の標本間隔
+    half_width_m: 24       # 道筋から左右に見る幅
+    approach_m: 150        # 合流ノードより上流に見る距離（始点の探索）
+    downstream_m: 900      # 合流ノードより下流に見る距離（終点の探索。最下流の baseline_m で本線の外縁を決める）
+    extend_m: 300          # 画像端で終点を見失ったときに下流へ延ばす距離
+    max_extensions: 2
+    mark:                  # 白線の検出：横方向の中央値（top-hat）からの明るさ
+      background_m: 3.0
+      contrast_min: 28
+      min_width_m: 0.1
+      max_width_m: 0.6
+    edge:                  # 車線外縁の追跡（日本の終点・米国の終点）
+      baseline_m: 60       # 最下流のこの区間で本線の外縁の位置を決める
+      search_m: 6.0        # 外縁を探す横方向の範囲（本線の外縁から入口側へ）
+      tolerance_m: 0.8     # 本線の外縁とみなす許容
+      min_width_m: 1.0     # これ以上の幅が残っていれば車線あり
+      run_m: 20            # 車線ありがこれだけ続いたら終点とする
+      max_jump_m: 1.5      # 1 m あたりの外縁の位置の変化の上限（別の線への乗り移り）
+    dash:                  # 米国の始点：本線との境の線が実線から破線に変わる位置
+      window_m: 24
+      solid_min: 0.85      # 線の被覆率がこれ以上なら実線（隔て部分）
+      dash_min: 0.12       # 破線の被覆率の範囲
+      dash_max: 0.65
+      run_m: 36            # 破線が続く距離
+    hold:                  # 補正候補を出さずに保留する条件
+      window_m: 40         # 端点の前後で見る範囲
+      visible_min: 0.6     # 有効な画素（画像あり・影でない）の割合の下限
+      shadow_max: 45       # これより暗い画素は影とみなす（0〜255）
+      edge_margin_m: 20    # 道筋の端からこの範囲の検出は画像端として延長・保留
+      competing_gap_m: 1.5 # 外縁の外側にこれ以上離れて平行な線があれば、隣のランプ・別の合流線の可能性
+      ambiguity_m: 60      # 同程度の候補がこれ以上離れて複数あれば保留
+    fallback_country_side: {JP: left, US: right, default: right}   # 幾何で進入側が決まらないとき
+  accel_eval:              # 補正候補の採点（roadmri accel-eval）
+    endpoint_m: 50         # 端点のずれがこれ以上で「ずれ」（相殺・行き過ぎの判定）
+    same_m: 0.5            # 誤差の差がこれ以下なら同値
+    fallback_m: 0.5        # 候補の端点が現行値とこれ以下なら現行値に戻したとみなす

@@ -518,6 +518,12 @@ def build_tables(ctx: Ctx) -> None:
             "accel_lane_method",
             "accel_lane_confidence",
             "accel_lane_notes",
+            "accel_start_method",
+            "accel_start_confidence",
+            "accel_start_pending",
+            "accel_end_method",
+            "accel_end_confidence",
+            "accel_end_pending",
         ):
             row[k] = m.get(k)
         row.update(

@@ -24,30 +24,69 @@ import numpy as np
 from shapely.geometry import LineString, Point
 from shapely.ops import substring
 
-# 除外理由（コード → 説明）。画面・CSV に出す
+# 除外・保留の理由（コード → 説明）。画面・CSV に出す
 REASONS: dict[str, str] = {
-    "no_mainline": "合流先の本線（上流・下流）が見つからない",
-    "lanes_inconsistent": "本線の車線数が合流点で減っている（情報の矛盾）",
-    "lane_addition": "車線追加：合流車線がそのまま本線の車線になる（探索範囲内で車線が減らない）",
-    "mainline_ends": "車線が戻る前に本線のデータが途切れる（範囲の端など。判定できない）",
-    "auxiliary_to_exit": "付加車線・織り込み：車線が終わる前に出口へ分岐する",
-    "another_merge": "車線が終わる前に別の合流がある",
-    "no_parallel_section": "隔て部分の終わりが特定できない（合流部が本線と並走しておらず、車線も増えていない）",
+    # 対象外（定義に当てはまらない。距離は null）
+    "lane_addition": "対象外・車線追加：合流車線がそのまま本線の車線になる（探索範囲内で車線が減らない）",
+    "auxiliary_to_exit": "対象外・出口まで続く付加車線：車線が終わる前に出口へ分岐する",
+    # 判定保留（端点を確定できない。距離は null）
+    "no_mainline": "判定保留：合流先の本線（上流・下流）が見つからない",
+    "lanes_inconsistent": "判定保留：本線の車線数が合流点で減っている（情報の矛盾）",
+    "mainline_ends": "判定保留：車線が戻る前に本線のデータが途切れる（範囲の端など）",
+    "lanes_unknown_downstream": "判定保留：下流の本線の車線数が不明で、車線が終わる点を確定できない",
+    "another_merge": "判定保留：車線が終わる前に別の合流があり、終点を確定できない",
+    "no_parallel_section": "判定保留：隔て部分の終わりが特定できない（合流部が本線と並走しておらず、車線も増えていない）",
 }
+# 定義上の対象外（ADR-0016）。これ以外で距離を出せないものは「判定保留」
+EXCLUDED_REASONS = frozenset({"lane_addition", "auxiliary_to_exit"})
+# 判定保留の理由ごとに、確定できなかった端点
+PENDING_ENDPOINTS: dict[str, tuple[str, ...]] = {
+    "no_mainline": ("start", "end"),
+    "lanes_inconsistent": ("end",),
+    "mainline_ends": ("end",),
+    "lanes_unknown_downstream": ("end",),
+    "another_merge": ("end",),
+    "no_parallel_section": ("start",),
+}
+# 端点の算出方法（ADR-0020）
+ENDPOINT_METHODS: dict[str, str] = {
+    "osm_parallel": "地図データ：ランプが本線のすぐ隣に寄った点（並走部の始まり）",
+    "osm_merge_node": "地図データ：ランプが本線に接続する点",
+    "osm_lane_drop": "地図データ：本線の車線数が合流前の数に戻る点",
+    "manual": "手動（航空写真などで確認）",
+}
+
+
+def status_of(reason: str | None) -> str:
+    """理由コードから状態（measured / excluded / pending）。以前の DB では保留の理由も excluded だった。"""
+    if reason is None:
+        return "measured"
+    return "excluded" if reason in EXCLUDED_REASONS else "pending"
+
+
+@dataclass
+class Endpoint:
+    """始点・終点ごとの根拠。method は ENDPOINT_METHODS、confidence は high / medium / low、pending は保留の理由。"""
+
+    method: str | None = None
+    confidence: str | None = None
+    pending: str | None = None
 
 
 @dataclass
 class AccelLane:
-    status: str  # measured / excluded
+    status: str  # measured / excluded / pending
     reason: str | None = None
     length_m: float | None = None
     method: str | None = None  # geometry / lanes / geometry+lanes
-    confidence: str | None = None  # high / medium / low
+    confidence: str | None = None  # high / medium / low（全体）
     start_xy: tuple[float, float] | None = None
     end_xy: tuple[float, float] | None = None
     parallel_m: float | None = None  # 始点から合流ノードまで（ランプ上）
     added_lane_m: float | None = None  # 合流ノードから終点まで（本線上）
     notes: list[str] = field(default_factory=list)
+    start: Endpoint = field(default_factory=Endpoint)
+    end: Endpoint = field(default_factory=Endpoint)
 
     def metrics(self) -> dict[str, Any]:
         return {
@@ -58,7 +97,23 @@ class AccelLane:
             "accel_lane_confidence": self.confidence,
             "accel_parallel_m": self.parallel_m,
             "accel_added_lane_m": self.added_lane_m,
+            "accel_start_method": self.start.method,
+            "accel_start_confidence": self.start.confidence,
+            "accel_start_pending": self.start.pending,
+            "accel_end_method": self.end.method,
+            "accel_end_confidence": self.end.confidence,
+            "accel_end_pending": self.end.pending,
         }
+
+
+def _unmeasured(reason: str, **kw: Any) -> AccelLane:
+    """対象外または判定保留。保留なら、確定できなかった端点に理由を付ける。"""
+    status = status_of(reason)
+    r = AccelLane(status, reason, **kw)
+    if status == "pending":
+        for which in PENDING_ENDPOINTS.get(reason, ("start", "end")):
+            getattr(r, which).pending = reason
+    return r
 
 
 def lanes_of(d: dict[str, Any]) -> int | None:
@@ -133,7 +188,7 @@ def measure(
     up = _main_edges(g, merge_node, None, upstream=True)
     down = _main_edges(g, merge_node, None, upstream=False)
     if not up or not down:
-        return AccelLane("excluded", "no_mainline")
+        return _unmeasured("no_mainline")
     route = down[0][2].get("route_ref")
     up_edges = _walk(g, merge_node, route, upstream=True, limit=search)
     down_edges = _walk(g, merge_node, route, upstream=False, limit=search)
@@ -145,27 +200,32 @@ def measure(
     end_node = merge_node
     lanes_known = lb is not None and la is not None
     if lanes_known and la < lb:  # type: ignore[operator]
-        return AccelLane("excluded", "lanes_inconsistent")
+        return _unmeasured("lanes_inconsistent")
     if lanes_known and la > lb:  # type: ignore[operator]
         found = False
         merge_tag = False
+        unknown = False  # 車線数の分からない辺があった（その辺で車線が終わっているかもしれない）
         for i, (u, _v, d) in enumerate(down_edges):
             if i > 0:  # 区間の途中のノード（u）で分岐・合流がないか
                 if _has_link(g, u, out=True):
-                    return AccelLane("excluded", "auxiliary_to_exit")
+                    return _unmeasured("auxiliary_to_exit")
                 if _has_link(g, u, out=False):
-                    return AccelLane("excluded", "another_merge")
+                    return _unmeasured("another_merge")
             n = lanes_of(d)
             if n is not None and n <= lb:  # type: ignore[operator]
                 end_node, found = u, True
                 break
+            unknown = unknown or n is None
             merge_tag = merge_tag or "merge_to" in str(d["tags"].get("turn:lanes", ""))
             added += float(d["length_m"])
         if not found:
+            # 終点を見失っただけでは車線追加としない：車線数が分かる区間で探索範囲の端まで続いたときだけ車線追加
             walked = sum(float(d["length_m"]) for _, _, d in down_edges)
-            return AccelLane("excluded", "lane_addition" if walked >= search else "mainline_ends")
+            if unknown:
+                return _unmeasured("lanes_unknown_downstream")
+            return _unmeasured("lane_addition" if walked >= search else "mainline_ends")
         if _has_link(g, end_node, out=True):  # 車線が出口の分岐で終わる＝付加車線
-            return AccelLane("excluded", "auxiliary_to_exit")
+            return _unmeasured("auxiliary_to_exit")
         if not merge_tag:
             notes.append("turn:lanes に合流（merge_to_*）の記載がない")
     elif not lanes_known:
@@ -186,7 +246,7 @@ def measure(
 
     length = par + added
     if length < float(cfg["min_length_m"]):
-        return AccelLane("excluded", "no_parallel_section", parallel_m=par, added_lane_m=added)
+        return _unmeasured("no_parallel_section", parallel_m=par, added_lane_m=added)
     rl = LineString(ramp_xy)
     sp = rl.interpolate(rl.length - par)
     end_xy = (float(g.nodes[end_node]["x"]), float(g.nodes[end_node]["y"]))
@@ -199,6 +259,16 @@ def measure(
         notes.append(
             f"許容差を {sens:g} m 広げると始点が {spread:.0f} m 動く（ランプが浅い角度で本線に寄る）"
         )
+    # 端点ごとの根拠（ADR-0020）
+    start = Endpoint(
+        "osm_parallel" if par >= step else "osm_merge_node",
+        "low" if spread > float(cfg["low_confidence_spread_m"]) else ("high" if lanes_known else "medium"),
+    )
+    if added > 0:
+        end = Endpoint("osm_lane_drop", "high" if merge_tag_seen(down_edges, end_node) else "medium")
+    else:
+        # ランプが本線に接続する点。描いた人がテーパーの途中に接続していると実際より手前になる（ADR-0017）
+        end = Endpoint("osm_merge_node", "medium")
     return AccelLane(
         "measured",
         None,
@@ -210,7 +280,19 @@ def measure(
         float(par),
         float(added),
         notes,
+        start,
+        end,
     )
+
+
+def merge_tag_seen(down_edges: list[tuple[int, int, dict[str, Any]]], end_node: int) -> bool:
+    """合流ノードから終点までの辺に turn:lanes の合流（merge_to_*）の記載があるか。"""
+    for u, _v, d in down_edges:
+        if u == end_node:
+            break
+        if "merge_to" in str(d["tags"].get("turn:lanes", "")):
+            return True
+    return False
 
 
 # ---- 手動での確認・修正（ADR-0017） ------------------------------------------------------
